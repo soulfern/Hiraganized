@@ -1,3 +1,5 @@
+<img src="assets/icon.png" width="128" alt="Hiraganized icon" />
+
 # Hiraganized
 
 ## How it works
