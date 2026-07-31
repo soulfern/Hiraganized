@@ -57,3 +57,67 @@ test('lookup fetches from kanjiapi.dev on cache miss', async () => {
     global.fetch = originalFetch;
   }
 });
+
+test('lookup serves a repeat lookup from cache without a second fetch', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ kanji: '水', meanings: ['water'], on_readings: ['スイ'], kun_readings: ['みず'] }) };
+  };
+  try {
+    const service = new DictionaryService();
+    const first = await service.lookup('水');
+    const second = await service.lookup('水');
+    assert.equal(first.found, true);
+    assert.equal(second.found, true);
+    assert.equal(calls, 1, 'second lookup should hit the in-memory cache');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('cache persists to disk and reloads without network', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const originalFetch = global.fetch;
+  const cachePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hira-dict-')), 'cache.json');
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ kanji: '火', meanings: ['fire'], on_readings: ['カ'], kun_readings: ['ひ'] }) };
+  };
+  try {
+    const s1 = new DictionaryService(cachePath).load();
+    await s1.lookup('火');
+    s1.flush();
+    assert.ok(fs.existsSync(cachePath), 'cache file should be written on flush');
+
+    calls = 0;
+    const s2 = new DictionaryService(cachePath).load();
+    const reloaded = await s2.lookup('火');
+    assert.equal(reloaded.found, true);
+    assert.ok(reloaded.meanings.includes('fire'));
+    assert.equal(calls, 0, 'reloaded cache should serve without any network call');
+  } finally {
+    global.fetch = originalFetch;
+    try { fs.rmSync(path.dirname(cachePath), { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('failed lookups are not cached', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return { ok: false, status: 404 }; };
+  try {
+    const service = new DictionaryService();
+    const first = await service.lookup('日');
+    const second = await service.lookup('日');
+    assert.equal(first.found, false);
+    assert.equal(second.found, false);
+    assert.equal(calls, 2, 'a failed lookup must not be cached and should re-fetch');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

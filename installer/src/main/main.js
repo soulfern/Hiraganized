@@ -23,7 +23,7 @@ function createWindow() {
     height: 520,
     frame: false,
     resizable: false,
-    backgroundColor: '#080808',
+    backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -131,8 +131,9 @@ ipcMain.handle('install:run', async (_event, installDir) => {
     // Step 2 - manga-ocr
     await installMangaOcr(pythonExe, progress);
 
-    // Step 3 - Shortcuts
+    // Step 3 - Shortcuts + uninstall registration (so it shows in "Installed apps")
     createShortcuts(installDir, progress);
+    registerUninstall(installDir, progress);
 
     log('=== Install completed successfully ===');
     return { success: true, installDir };
@@ -371,6 +372,48 @@ function createShortcuts(installDir, progress) {
     try { fs.unlinkSync(ps1); } catch (_) {}
   }
   progress(3, 100, 'Shortcuts created', '');
+}
+
+/**
+ * Register the app under HKLM Uninstall so it appears in Windows "Installed apps"
+ * / "Add or Remove Programs". UninstallString launches the app's built-in
+ * uninstaller mode (Hiraganized.exe --uninstall). Requires admin (the installer
+ * runs elevated), which is why we can write to HKLM.
+ */
+function registerUninstall(installDir, progress) {
+  const exe = path.join(installDir, 'Hiraganized.exe');
+  const iconPath = path.join(installDir, 'resources', 'app.asar');
+  const keyPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Hiraganized';
+  const version = '1.1.0';
+  // Estimate size in KB (app dir); best-effort, non-fatal if it fails.
+  const ps1 = path.join(app.getPath('temp'), 'hiraganized-reguninstall.ps1');
+  const code = `
+    $ErrorActionPreference = 'Stop'
+    $key = '${keyPath}'
+    if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+    $sizeKb = 0
+    try { $sizeKb = [int]((Get-ChildItem -LiteralPath '${psEscape(installDir)}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1024) } catch {}
+    New-ItemProperty -Path $key -Name 'DisplayName' -Value 'Hiraganized' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'DisplayVersion' -Value '${version}' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'Publisher' -Value 'soulfern' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'DisplayIcon' -Value '${psEscape(exe)}' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'InstallLocation' -Value '${psEscape(installDir)}' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'UninstallString' -Value '"${psEscape(exe)}" --uninstall' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'QuietUninstallString' -Value '"${psEscape(exe)}" --uninstall --quiet' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'NoModify' -Value 1 -PropertyType DWord -Force | Out-Null
+    New-ItemProperty -Path $key -Name 'NoRepair' -Value 1 -PropertyType DWord -Force | Out-Null
+    if ($sizeKb -gt 0) { New-ItemProperty -Path $key -Name 'EstimatedSize' -Value $sizeKb -PropertyType DWord -Force | Out-Null }
+  `.trim();
+
+  try {
+    fs.writeFileSync(ps1, code, 'utf8');
+    execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], { timeout: 30000 });
+    fs.unlinkSync(ps1);
+    log('Registered uninstall entry in HKLM');
+  } catch (e) {
+    try { fs.unlinkSync(ps1); } catch (_) {}
+    log('Uninstall registration warning:', e.message);
+  }
 }
 
 function psEscape(s) {

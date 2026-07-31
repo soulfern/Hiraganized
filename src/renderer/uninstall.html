@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Uninstall Hiraganized</title>
+  <style>
+    :root {
+      --bg-deep: #1e1e1e;
+      --glass-card: rgba(217,217,217,0.04);
+      --glass-card-border: rgba(217,217,217,0.10);
+      --glass-card-border-strong: rgba(217,217,217,0.16);
+      --glass-frost-hover: rgba(217,217,217,0.08);
+      --text-primary: #d9d9d9;
+      --text-secondary: rgba(217,217,217,0.62);
+      --text-tertiary: rgba(217,217,217,0.38);
+      --text-bright: #ffffff;
+      --window-edge: #545454;
+      --danger: #e5687a;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100vh;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      font-family: var(--font-family);
+      font-size: 13px;
+      overflow: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+    .shell { height: 100vh; display: flex; flex-direction: column; border: 1px solid var(--window-edge); }
+    .titlebar {
+      height: 38px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-app-region: drag;
+      border-bottom: 1px solid var(--window-edge);
+      background: rgba(217,217,217,0.02);
+      position: relative;
+    }
+    .brand-name {
+      font-weight: 400; font-size: 11px; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .close-btn {
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      -webkit-app-region: no-drag;
+      width: 30px; height: 28px; display: grid; place-items: center;
+      border: none; background: none; color: var(--text-tertiary);
+      font-size: 14px; border-radius: 8px; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .close-btn:hover { background: rgba(255,255,255,0.10); color: var(--text-bright); }
+    .content { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 20px 24px; overflow-y: auto; }
+    h1 { font-size: 16px; font-weight: 500; margin-bottom: 4px; }
+    .subtitle { font-size: 12px; color: var(--text-secondary); margin-bottom: 18px; line-height: 1.5; }
+    .options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+    .opt {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: var(--glass-card); border: 1px solid var(--glass-card-border);
+      border-radius: 12px; padding: 14px 16px; cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .opt:hover { border-color: var(--glass-card-border-strong); }
+    .opt.locked { opacity: 0.6; cursor: default; }
+    .opt input { margin-top: 2px; width: 15px; height: 15px; accent-color: var(--danger); cursor: pointer; }
+    .opt.locked input { cursor: default; }
+    .opt-body { flex: 1; }
+    .opt-label { font-size: 13px; font-weight: 500; display: flex; justify-content: space-between; gap: 8px; }
+    .opt-size { color: var(--text-tertiary); font-weight: 400; font-size: 11px; white-space: nowrap; }
+    .opt-desc { font-size: 11px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; }
+    .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: auto; padding-top: 8px; }
+    button.action {
+      padding: 9px 20px; border-radius: 10px; border: 1px solid var(--glass-card-border-strong);
+      background: none; color: var(--text-secondary); font-size: 12px; font-family: var(--font-family);
+      cursor: pointer; transition: all 0.15s ease;
+    }
+    button.action:hover { background: var(--glass-frost-hover); color: var(--text-primary); }
+    button.action.danger { border-color: rgba(229,104,122,0.4); color: var(--danger); }
+    button.action.danger:hover { background: rgba(229,104,122,0.12); color: #f0899a; }
+    button.action:disabled { opacity: 0.5; cursor: default; }
+    .status { text-align: center; font-size: 12px; color: var(--text-secondary); padding: 20px; line-height: 1.6; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="titlebar">
+      <span class="brand-name">Hiraganized</span>
+      <button class="close-btn" id="btn-close" title="Close">&times;</button>
+    </header>
+    <main class="content" id="main">
+      <h1>Uninstall Hiraganized</h1>
+      <p class="subtitle">Choose what to remove. The app itself, its shortcuts, and its entry in Installed apps are always removed.</p>
+      <div class="options" id="options">
+        <label class="opt locked">
+          <input type="checkbox" checked disabled />
+          <div class="opt-body">
+            <div class="opt-label"><span>Hiraganized app &amp; shortcuts</span><span class="opt-size" id="size-app"></span></div>
+            <div class="opt-desc">Program files, Desktop and Start Menu shortcuts, and the Installed apps entry.</div>
+          </div>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="opt-settings" />
+          <div class="opt-body">
+            <div class="opt-label"><span>Settings &amp; logs</span><span class="opt-size" id="size-settings"></span></div>
+            <div class="opt-desc">Your hotkey and preferences. Leave unchecked to keep them for a future reinstall.</div>
+          </div>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="opt-ocr" />
+          <div class="opt-body">
+            <div class="opt-label"><span>OCR engine &amp; model</span><span class="opt-size" id="size-ocr"></span></div>
+            <div class="opt-desc">Python 3.12, manga-ocr, and the downloaded OCR model. Only remove if you don't use Python 3.12 for anything else.</div>
+          </div>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="action" id="btn-cancel">Cancel</button>
+        <button class="action danger" id="btn-uninstall">Uninstall</button>
+      </div>
+    </main>
+    <main class="content hidden" id="status-view">
+      <div class="status" id="status-text"></div>
+    </main>
+  </div>
+  <script src="uninstall.js"></script>
+</body>
+</html>

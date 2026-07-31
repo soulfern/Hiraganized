@@ -1,9 +1,13 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
 const KANJI_PATTERN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g;
 const KANJI_CHARACTER_PATTERN = /^[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]$/u;
 const KANJI_SEQUENCE_PATTERN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{2,}/g;
 
 const KANJI_TIMEOUT_MS = 3000;
 const COMPOUND_TIMEOUT_MS = 8000;
+const PERSIST_DEBOUNCE_MS = 2000;
 
 const EMPTY_RESULT = {
   found: false,
@@ -21,13 +25,69 @@ function emptyFor(character) {
 }
 
 /**
- * Online-only kanji/compound lookup. No bundled dictionary and no persistence:
- * every lookup goes to the network. The only local state is in-flight request
- * dedup, so identical concurrent lookups within a single capture share one fetch.
+ * Online kanji/compound lookup with a local write-through cache. The first
+ * lookup of a character or compound fetches from the network; the successful
+ * result is kept in memory and persisted to disk (debounced), so subsequent
+ * lookups — this session or future ones — resolve instantly and offline.
+ * In-flight dedup ensures identical concurrent lookups share one fetch.
  */
 class DictionaryService {
-  constructor() {
-    this._pending = new Map(); // key -> in-flight promise (dedup only, cleared on settle)
+  constructor(cachePath) {
+    this._pending = new Map();   // key -> in-flight promise (dedup, cleared on settle)
+    this._cache = new Map();     // key -> resolved result (found entries only)
+    this._cachePath = cachePath || null;
+    this._dirty = false;
+    this._persistTimer = null;
+  }
+
+  /** Load any previously persisted cache from disk. Safe to call once at startup. */
+  load(cachePath) {
+    if (cachePath) this._cachePath = cachePath;
+    if (!this._cachePath) return this;
+    try {
+      if (fs.existsSync(this._cachePath)) {
+        const data = JSON.parse(fs.readFileSync(this._cachePath, 'utf8'));
+        if (data && typeof data === 'object') {
+          for (const [key, entry] of Object.entries(data)) {
+            if (entry && typeof entry === 'object') this._cache.set(key, entry);
+          }
+        }
+      }
+    } catch { /* corrupt cache is non-fatal — we just re-fetch */ }
+    return this;
+  }
+
+  _cacheResult(key, result) {
+    // Only persist genuine hits — never cache failures/placeholders.
+    if (!result || result.found !== true) return;
+    this._cache.set(key, result);
+    this._dirty = true;
+    if (this._cachePath && !this._persistTimer) {
+      this._persistTimer = setTimeout(() => this._flush(), PERSIST_DEBOUNCE_MS);
+    }
+  }
+
+  _flush() {
+    if (this._persistTimer) { clearTimeout(this._persistTimer); this._persistTimer = null; }
+    if (!this._cachePath || !this._dirty) return;
+    try {
+      // Persist genuine hits only — never the in-memory "not a word" markers.
+      const obj = {};
+      for (const [key, value] of this._cache) {
+        if (value && value.__notWord) continue;
+        obj[key] = value;
+      }
+      const tmp = `${this._cachePath}.${process.pid}.${Date.now()}.tmp`;
+      fs.mkdirSync(path.dirname(this._cachePath), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(obj), 'utf8');
+      fs.renameSync(tmp, this._cachePath);
+      this._dirty = false;
+    } catch { /* best-effort; will retry on next cache write */ }
+  }
+
+  /** Persist immediately (call on app quit to flush any pending debounce). */
+  flush() {
+    this._flush();
   }
 
   _track(key, promise) {
@@ -44,7 +104,11 @@ class DictionaryService {
     if (!value) return emptyFor('');
     if (!KANJI_CHARACTER_PATTERN.test(value)) return emptyFor(value);
 
-    // Dedupe identical concurrent requests (e.g. same char from a compound + the char loop).
+    // 1. Local cache (instant, offline).
+    const cached = this._cache.get(value);
+    if (cached) return cached;
+
+    // 2. Dedupe identical concurrent requests (same char from a compound + the char loop).
     const inflight = this._pending.get(value);
     if (inflight) return inflight;
 
@@ -57,7 +121,7 @@ class DictionaryService {
         });
         if (response.ok) {
           const data = await response.json();
-          return {
+          const result = {
             character: data.kanji || value,
             unicode: unicodeOf(value),
             found: true,
@@ -70,6 +134,8 @@ class DictionaryService {
             radical: data.radical?.character || null,
             frequency: null
           };
+          this._cacheResult(value, result);
+          return result;
         }
       } catch {} finally {
         clearTimeout(timeout);
@@ -83,7 +149,16 @@ class DictionaryService {
     if (!word || word.length < 2) return this.lookup(word);
     if (!KANJI_CHARACTER_PATTERN.test(word[0])) return null;
 
-    const inflight = this._pending.get(word);
+    // Compound cache keys are prefixed so a compound never collides with a
+    // single-kanji entry. `null` (confirmed non-word) is cached too, to avoid
+    // re-querying Jisho for the same non-word during segmentation.
+    const cacheKey = `#${word}`;
+    if (this._cache.has(cacheKey)) {
+      const hit = this._cache.get(cacheKey);
+      return hit && hit.__notWord ? null : hit;
+    }
+
+    const inflight = this._pending.get(cacheKey);
     if (inflight) return inflight;
 
     const promise = (async () => {
@@ -103,7 +178,7 @@ class DictionaryService {
             const meanings = senses
               .flatMap((s) => s.english_definitions || [])
               .filter((m, i, a) => a.indexOf(m) === i);
-            return {
+            const result = {
               character: word,
               isCompound: true,
               found: true,
@@ -111,26 +186,54 @@ class DictionaryService {
               meanings: meanings.slice(0, 5),
               onyomi: [], kunyomi: []
             };
+            this._cacheResult(cacheKey, result);
+            return result;
           }
+          // Confirmed reachable-but-not-a-word: remember in-memory only (not
+          // persisted — avoids disk bloat and permanent staleness if Jisho later
+          // adds the word) so segmentation doesn't re-query it this session.
+          this._cache.set(cacheKey, { __notWord: true });
         }
       } catch {} finally {
         clearTimeout(timeout);
       }
 
-      // Fallback: compose from per-character lookups (parallel, no serial chain).
-      const chars = (await Promise.all([...word].map((c) => this.lookup(c)))).filter((c) => c && c.found);
-      const allReadings = chars.flatMap((c) => [...(c.onyomi || []), ...(c.kunyomi || [])]);
-      const allMeanings = chars.flatMap((c) => c.meanings || []);
-      return {
-        character: word,
-        isCompound: true,
-        found: true,
-        readings: [...new Set(allReadings)].slice(0, 6),
-        meanings: allMeanings.length ? [...new Set(allMeanings)].slice(0, 5) : [],
-        onyomi: [], kunyomi: []
-      };
+      // Network failure or not a real compound → return null so the caller can
+      // try segmentation or individual chars. (Transient failures are not cached.)
+      return null;
     })();
-    return this._track(word, promise);
+    return this._track(cacheKey, promise);
+  }
+
+  /**
+   * Greedily split a kanji run into real compounds + leftover chars.
+   * e.g. "毎日日本語" -> ["毎日", "日本語"] (both real words), then callers
+   * fall back to individual chars for anything else.
+   */
+  async segmentSequence(run) {
+    if (!run || run.length < 2) return [run].filter(Boolean);
+    const pieces = [];
+    let i = 0;
+    const n = run.length;
+    while (i < n) {
+      // Longest-first: try to match a real compound ending at each index.
+      let matched = null;
+      for (let end = Math.min(n, i + 4); end > i; end--) {
+        const candidate = run.slice(i, end);
+        if (await this.lookupCompound(candidate)) {
+          matched = { candidate, end };
+          break;
+        }
+      }
+      if (matched) {
+        pieces.push(matched.candidate);
+        i = matched.end;
+      } else {
+        // No compound from here — advance one char (it gets its own entry later).
+        i += 1;
+      }
+    }
+    return pieces;
   }
 
   extractSequences(text) {

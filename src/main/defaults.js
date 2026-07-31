@@ -1,7 +1,10 @@
 ﻿const DEFAULT_SETTINGS = Object.freeze({
   general: {
     minimizeToTray: false,
-    closeToTray: true
+    closeToTray: true,
+    launchOnStartup: false,
+    startMinimized: false,
+    showCompoundCharacters: false
   },
   shortcuts: {
     triggerCapture: 'CommandOrControl+Shift+K'
@@ -51,6 +54,7 @@ function clampNumber(value, minimum, maximum, fallback) {
 function normalizeSettings(settings) {
   const result = settings;
   result.notifications.opacity = clampNumber(result.notifications.opacity, 55, 100, DEFAULT_SETTINGS.notifications.opacity);
+  if (!result.general.launchOnStartup) result.general.startMinimized = false;
   return result;
 }
 

@@ -12,6 +12,16 @@ function renderState(next) {
   settings = next.settings || settings;
   const hotkey = nestedValue(settings, 'shortcuts.triggerCapture');
   if (hotkey && !recording) $('#hotkey-recorder').textContent = formatAccelerator(hotkey);
+
+  // General toggles.
+  const launch = nestedValue(settings, 'general.launchOnStartup') === true;
+  const minimized = nestedValue(settings, 'general.startMinimized') === true;
+  const showCompound = nestedValue(settings, 'general.showCompoundCharacters') !== false;
+
+  $('#set-launchOnStartup').checked = launch;
+  $('#set-startMinimized').checked = minimized;
+  $('#set-showCompoundCharacters').checked = showCompound;
+  setStartMinimizedDisabled(!launch);
 }
 
 function updateSetting(path, rawValue) {
@@ -29,19 +39,51 @@ function formatAccelerator(accel) {
     .replace('Super', 'Win');
 }
 
-function keyEventToAccelerator(event) {
+const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta']);
+
+/** Modifiers held according to the event's modifier flags (no key appended). */
+function modsFromEvent(event) {
   const parts = [];
   if (event.ctrlKey) parts.push('CommandOrControl');
   if (event.shiftKey) parts.push('Shift');
   if (event.altKey) parts.push('Alt');
   if (event.metaKey) parts.push('Super');
+  return parts;
+}
 
-  let key = event.key;
-  if (key === ' ') key = 'Space';
-  else if (key.length === 1) key = key.toUpperCase();
+/** Normalize a non-modifier key for Electron's accelerator syntax. */
+function normalizeKey(key) {
+  if (key === ' ') return 'Space';
+  if (key.length === 1) return key.toUpperCase();
+  return key;
+}
 
-  parts.push(key);
-  return parts.join('+');
+/** Build a full accelerator from held modifiers + a key. */
+function comboOf(mods, key) {
+  return [...mods, key].join('+');
+}
+
+/** "Start minimized" is only meaningful when launching at startup. */
+function setStartMinimizedDisabled(disabled) {
+  const input = $('#set-startMinimized');
+  const row = input.closest('.setting-row');
+  input.disabled = disabled;
+  row.classList.toggle('disabled', disabled);
+  if (disabled) input.checked = false;
+}
+
+function bindToggle(selector, path) {
+  const el = $(selector);
+  el.addEventListener('change', async () => {
+    if (path === 'general.launchOnStartup' && !el.checked) {
+      // Turning off startup forces start-minimized off too.
+      $('#set-startMinimized').checked = false;
+      setStartMinimizedDisabled(true);
+    } else if (path === 'general.launchOnStartup' && el.checked) {
+      setStartMinimizedDisabled(false);
+    }
+    await updateSetting(path, el.checked);
+  });
 }
 
 function bindEvents() {
@@ -52,11 +94,37 @@ function bindEvents() {
     appApi.openExternal('https://github.com/soulfern');
   });
 
+  bindToggle('#set-launchOnStartup', 'general.launchOnStartup');
+  bindToggle('#set-startMinimized', 'general.startMinimized');
+  bindToggle('#set-showCompoundCharacters', 'general.showCompoundCharacters');
+
   const recorder = $('#hotkey-recorder');
+  let heldMods = new Set();
+  let lastPreview = '';
+
+  function commit(accelerator) {
+    recording = false;
+    heldMods = new Set();
+    lastPreview = '';
+    recorder.classList.remove('recording');
+    recorder.textContent = formatAccelerator(accelerator);
+    updateSetting('shortcuts.triggerCapture', accelerator);
+  }
+
+  function cancelRecording() {
+    recording = false;
+    heldMods = new Set();
+    lastPreview = '';
+    recorder.classList.remove('recording');
+    const hotkey = nestedValue(settings, 'shortcuts.triggerCapture') || 'CommandOrControl+Shift+K';
+    recorder.textContent = formatAccelerator(hotkey);
+  }
 
   recorder.addEventListener('click', () => {
     if (recording) return;
     recording = true;
+    heldMods = new Set();
+    lastPreview = '';
     recorder.classList.add('recording');
     recorder.textContent = 'Press keys...';
   });
@@ -67,25 +135,32 @@ function bindEvents() {
     event.stopPropagation();
 
     if (event.key === 'Escape') {
-      recording = false;
-      recorder.classList.remove('recording');
-      const hotkey = nestedValue(settings, 'shortcuts.triggerCapture') || 'CommandOrControl+Shift+K';
-      recorder.textContent = formatAccelerator(hotkey);
+      cancelRecording();
       return;
     }
 
-    const accelerator = keyEventToAccelerator(event);
-
-    if (event.key === 'Control' || event.key === 'Shift' || event.key === 'Alt' || event.key === 'Meta') {
-      recorder.textContent = formatAccelerator(accelerator);
+    if (MODIFIER_KEYS.has(event.key)) {
+      // Preview the currently-held modifiers (no duplicate key appended).
+      heldMods.add(event.key);
+      const mods = modsFromEvent(event);
+      lastPreview = mods.length ? formatAccelerator(mods.join('+')) : 'Press keys...';
+      recorder.textContent = lastPreview;
       return;
     }
 
-    recording = false;
-    recorder.classList.remove('recording');
-    recorder.textContent = formatAccelerator(accelerator);
+    // A non-modifier key completes the combination immediately.
+    commit(comboOf(modsFromEvent(event), normalizeKey(event.key)));
+  });
 
-    updateSetting('shortcuts.triggerCapture', accelerator);
+  // Commit once all keys are released — this lets modifier-only hotkeys
+  // (e.g. just "Shift") be selected without pressing an extra key.
+  document.addEventListener('keyup', (event) => {
+    if (!recording) return;
+    if (!MODIFIER_KEYS.has(event.key)) return;
+    heldMods.delete(event.key);
+    if (heldMods.size === 0 && lastPreview) {
+      commit(lastPreview);
+    }
   });
 }
 

@@ -11,8 +11,22 @@ const { cloneDefaults } = require('./defaults');
 const { recognizeImage, cropRegion, saveTempPng, startOcr, stopOcr, tryCleanup, setSetupCallbacks, cancelSetup } = require('./ocr-manager');
 
 const root = path.resolve(__dirname, '..', '..');
+
+// --- Uninstaller mode ---
+// Launched via `Hiraganized.exe --uninstall` from Windows "Installed apps".
+// Runs a dedicated window and skips the normal app flow + single-instance lock.
+if (process.argv.includes('--uninstall')) {
+  const { runUninstaller } = require('./uninstaller');
+  runUninstaller();
+  return;
+}
+
 const POPUP_WIDTH = 300;
 const POPUP_HEIGHT = 220;
+const MAIN_WINDOW_WIDTH = 520;
+const MAIN_WINDOW_HEIGHT = 460;
+const MAIN_WINDOW_MIN_WIDTH = 520;
+const MAIN_WINDOW_MIN_HEIGHT = 460;
 
 let tray = null;
 let mainWindow = null;
@@ -26,6 +40,8 @@ let logger = null;
 let isQuitting = false;
 let captureInProgress = false;
 let trayNotifiedOnce = false;
+let cachedAppIcon = null;
+let windowStateSaveTimer = null;
 
 const state = {
   popupVisible: false,
@@ -54,17 +70,18 @@ async function ensureOcrStarted() {
 }
 
 function appIcon() {
+  if (cachedAppIcon) return cachedAppIcon;
   try {
     const sizes = [16, 32, 48, 64];
     const dir = path.join(root, 'assets');
     for (const size of sizes) {
       const p = path.join(dir, `icon${size}.png`);
-      if (fs.existsSync(p)) return nativeImage.createFromPath(p);
+      if (fs.existsSync(p)) return (cachedAppIcon = nativeImage.createFromPath(p));
     }
     const p = path.join(dir, 'icon.png');
-    if (fs.existsSync(p)) return nativeImage.createFromPath(p);
+    if (fs.existsSync(p)) return (cachedAppIcon = nativeImage.createFromPath(p));
     const ico = path.join(dir, 'icon.ico');
-    if (fs.existsSync(ico)) return nativeImage.createFromPath(ico);
+    if (fs.existsSync(ico)) return (cachedAppIcon = nativeImage.createFromPath(ico));
   } catch {}
   return nativeImage.createEmpty();
 }
@@ -159,13 +176,21 @@ async function handleSelection(bounds) {
 
       const entries = [];
 
+      // A raw kanji run may fuse several real words (e.g. 毎日日本語 = 毎日 + 日本語).
+      // Segment each run into genuine dictionary compounds; only those become
+      // compound entries (with per-character children). Non-compound kanji fall
+      // through to the individual-character loop below.
       for (const seq of seqs) {
-        if (seq.length >= 2) {
-          const result = await dictionary.lookupCompound(seq);
+        if (seq.length < 2) continue;
+        const pieces = await dictionary.segmentSequence(seq);
+        for (const piece of pieces) {
+          if (piece.length < 2) continue;
+          const result = await dictionary.lookupCompound(piece);
           if (result) {
-            const childChars = dictionary.extractKanji(seq);
-            const children = (await Promise.all(childChars.map((ch) => dictionary.lookup(ch)))).filter(Boolean);
-            result._children = children;
+            if (settings.general?.showCompoundCharacters !== false) {
+              const childChars = dictionary.extractKanji(piece);
+              result._children = (await Promise.all(childChars.map((ch) => dictionary.lookup(ch)))).filter(Boolean);
+            }
             entries.push(result);
           }
         }
@@ -173,6 +198,7 @@ async function handleSelection(bounds) {
 
       const seen = new Set(entries.map((e) => e.character));
       for (const entry of entries) {
+        for (const char of dictionary.extractKanji(entry.character)) seen.add(char);
         if (entry._children) {
           for (const child of entry._children) {
             seen.add(child.character);
@@ -376,10 +402,14 @@ function sendToPopup(channel, payload, bounds, { width = POPUP_WIDTH, height = P
 function showKanjiPopup(entries, position) {
   if (!entries.length) return;
 
+  // Respect the "show compound characters" setting: when disabled, a compound
+  // appears as a single entry rather than being expanded into its characters.
+  const showCompoundChars = settings.general?.showCompoundCharacters !== false;
+
   const flatEntries = [];
   for (const entry of entries) {
     flatEntries.push(entry);
-    if (entry._children) {
+    if (showCompoundChars && entry._children) {
       flatEntries.push(...entry._children);
     }
   }
@@ -439,10 +469,14 @@ function showWarningPopup(message, bounds) {
   sendToPopup('popup:warning', message, { x: px, y: py }, { width: pw, height: ph });
 }
 
-let windowState = { x: undefined, y: undefined, width: 480, height: 320, maximized: false };
+let windowState = { x: undefined, y: undefined, width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, maximized: false };
 const windowStatePath = path.join(app.getPath('userData'), 'window-state.json');
 
 function saveWindowState() {
+  if (windowStateSaveTimer) {
+    clearTimeout(windowStateSaveTimer);
+    windowStateSaveTimer = null;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     const bounds = mainWindow.getBounds();
@@ -455,6 +489,11 @@ function saveWindowState() {
   } catch {}
 }
 
+function scheduleWindowStateSave() {
+  if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+  windowStateSaveTimer = setTimeout(saveWindowState, 250);
+}
+
 function restoreWindowState() {
   try {
     if (fs.existsSync(windowStatePath)) {
@@ -462,15 +501,30 @@ function restoreWindowState() {
       if (data && typeof data === 'object') Object.assign(windowState, data);
     }
   } catch {}
+
+  const display = Number.isFinite(windowState.x) && Number.isFinite(windowState.y)
+    ? screen.getDisplayNearestPoint({ x: windowState.x, y: windowState.y })
+    : screen.getPrimaryDisplay();
+  const area = display.workArea;
+  windowState.width = Math.min(area.width, Math.max(MAIN_WINDOW_MIN_WIDTH, Number(windowState.width) || MAIN_WINDOW_WIDTH));
+  windowState.height = Math.min(area.height, Math.max(MAIN_WINDOW_MIN_HEIGHT, Number(windowState.height) || MAIN_WINDOW_HEIGHT));
+  if (Number.isFinite(windowState.x)) {
+    windowState.x = Math.max(area.x, Math.min(windowState.x, area.x + area.width - windowState.width));
+  }
+  if (Number.isFinite(windowState.y)) {
+    windowState.y = Math.max(area.y, Math.min(windowState.y, area.y + area.height - windowState.height));
+  }
 }
 
 function createMainWindow() {
   restoreWindowState();
   mainWindow = new BrowserWindow({
-    width: windowState.width || 480,
-    height: windowState.height || 320,
+    width: windowState.width || MAIN_WINDOW_WIDTH,
+    height: windowState.height || MAIN_WINDOW_HEIGHT,
     x: windowState.x,
     y: windowState.y,
+    minWidth: MAIN_WINDOW_MIN_WIDTH,
+    minHeight: MAIN_WINDOW_MIN_HEIGHT,
     icon: appIcon(),
     frame: false,
     show: false,
@@ -486,7 +540,10 @@ function createMainWindow() {
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   mainWindow.once('ready-to-show', () => {
-    if (!settings.general.minimizeToTray) mainWindow.show();
+    const startHidden =
+      settings.general.minimizeToTray ||
+      (settings.general.startMinimized === true && startedFromStartup());
+    if (!startHidden) mainWindow.show();
     publishState();
   });
 
@@ -500,10 +557,10 @@ function createMainWindow() {
     }
   });
 
-  mainWindow.on('move', saveWindowState);
-  mainWindow.on('resize', saveWindowState);
-  mainWindow.on('maximize', () => { saveWindowState(); publishState(); });
-  mainWindow.on('unmaximize', () => { saveWindowState(); publishState(); });
+  mainWindow.on('move', scheduleWindowStateSave);
+  mainWindow.on('resize', scheduleWindowStateSave);
+  mainWindow.on('maximize', () => { scheduleWindowStateSave(); publishState(); });
+  mainWindow.on('unmaximize', () => { scheduleWindowStateSave(); publishState(); });
   mainWindow.on('closed', () => { saveWindowState(); mainWindow = null; });
   mainWindow.on('show', refreshTrayMenu);
   mainWindow.on('hide', refreshTrayMenu);
@@ -584,6 +641,27 @@ function registerShortcuts() {
 
 // --- IPC handlers ---
 
+/**
+ * Sync the "Launch on startup" OS login item with the setting. When enabled the
+ * app is added to Windows startup (HKCU Run key) and launched with `--hidden`
+ * so the "Start minimized" setting can suppress the window on boot.
+ */
+function applyLoginItemSettings() {
+  try {
+    const enabled = settings.general?.launchOnStartup === true;
+    app.setLoginItemSettings(enabled
+      ? { openAtLogin: true, args: ['--hidden'] }
+      : { openAtLogin: false });
+  } catch (err) {
+    logger?.warn('Failed to update login item', { error: err.message });
+  }
+}
+
+/** True when this launch was an automatic startup with the --hidden flag. */
+function startedFromStartup() {
+  return process.argv.includes('--hidden');
+}
+
 function setupIpc() {
   ipcMain.handle('app:update-settings', (_event, patch) => {
     if (typeof patch !== 'object' || !patch) return { ok: false };
@@ -591,7 +669,12 @@ function setupIpc() {
     if (Object.prototype.hasOwnProperty.call(patch, 'advanced') && Object.prototype.hasOwnProperty.call(patch.advanced, 'logging')) {
       logger?.setEnabled(settings.advanced.logging);
     }
-    registerShortcuts();
+    if (Object.prototype.hasOwnProperty.call(patch.general || {}, 'launchOnStartup')) {
+      applyLoginItemSettings();
+    }
+    if (Object.prototype.hasOwnProperty.call(patch.shortcuts || {}, 'triggerCapture')) {
+      registerShortcuts();
+    }
     refreshTrayMenu();
     publishState();
     return { ok: true };
@@ -635,6 +718,7 @@ function quitApp() {
   stopOcr();
   tryCleanup();
   configStore?.save(); // flush debounced settings
+  dictionary?.flush(); // flush debounced dictionary cache
   logger?.info('Application shutting down');
   logger?.close();
   app.quit();
@@ -656,7 +740,9 @@ app.whenReady().then(async () => {
   configStore = new ConfigStore(path.join(app.getPath('userData'), 'settings.json'), cloneDefaults());
   settings = configStore.load();
   logger = new Logger(app.getPath('logs'), settings.advanced?.logging !== false);
-  dictionary = new DictionaryService();
+  dictionary = new DictionaryService(path.join(app.getPath('userData'), 'dictionary-cache.json')).load();
+
+  applyLoginItemSettings(); // sync the OS startup entry with the saved setting
 
   createMainWindow();
 

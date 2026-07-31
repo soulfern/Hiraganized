@@ -38,3 +38,22 @@ test('config store ignores unknown keys and clamps unsafe values', () => {
   assert.equal(result.notifications.opacity, 100);
   assert.equal(result.unknown, undefined);
 });
+
+test('new general settings persist and preserve their dependency', () => {
+  const { store } = createTestStore();
+  let result = store.update({
+    general: {
+      launchOnStartup: true,
+      startMinimized: true,
+      showCompoundCharacters: false
+    }
+  });
+  assert.equal(result.general.launchOnStartup, true);
+  assert.equal(result.general.startMinimized, true);
+  assert.equal(result.general.showCompoundCharacters, false);
+
+  result = store.update({ general: { launchOnStartup: false } });
+  assert.equal(result.general.launchOnStartup, false);
+  assert.equal(result.general.startMinimized, false);
+  assert.equal(result.general.showCompoundCharacters, false);
+});

@@ -1,7 +1,7 @@
 {
   "name": "hiraganized-installer",
   "productName": "Hiraganized Installer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Installs Hiraganized – kanji context for Windows",
   "main": "src/main/main.js",
   "private": true,

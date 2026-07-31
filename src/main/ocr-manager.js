@@ -332,7 +332,7 @@ async function startOcr() {
     if (!(await checkMangaOcrInstalled(pythonExe))) {
       await installMangaOcr(pythonExe);
     }
-    updateSetup('Starting OCR server...', 'First launch may download the OCR model (~450 MB)', 0.85);
+    updateSetup('Starting OCR server...', '', 0.85);
 
     const sp = ensureScriptFile();
     proc = spawn(pythonExe, [sp], {
