@@ -1,0 +1,31 @@
+﻿<!doctype html>
+<html lang="en" style="background:transparent">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html,body.popup-body{background:transparent!important}
+    .popup-scroll-wrap { max-height: 360px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--glass-card-border-strong) transparent; padding-right: 2px; }
+    .popup-scroll-wrap::-webkit-scrollbar { width: 4px; }
+    .popup-scroll-wrap::-webkit-scrollbar-track { background: transparent; }
+    .popup-scroll-wrap::-webkit-scrollbar-thumb { background: var(--glass-card-border-strong); border-radius: 2px; }
+  </style>
+</head>
+<body class="popup-body">
+  <div class="popup-card" id="popup-card">
+    <div class="popup-header">
+      <div class="tab-bar" id="tab-bar"></div>
+      <button class="popup-nav-btn" id="popup-close" title="Close">&#x2715;</button>
+    </div>
+    <div class="popup-scroll-wrap">
+      <div class="popup-char" id="popup-char"></div>
+      <div class="popup-reading" id="popup-reading"></div>
+      <div class="popup-meaning" id="popup-meaning"></div>
+      <div class="popup-jlpt" id="popup-jlpt"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

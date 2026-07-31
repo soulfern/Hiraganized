@@ -1,0 +1,47 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>Hiraganized</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="window-shell">
+    <header class="titlebar">
+      <span class="brand-name">Hiraganized</span>
+      <div class="window-actions">
+        <button class="icon-button" id="minimize-window" aria-label="Minimize" title="Minimize">&mdash;</button>
+        <button class="icon-button close-button" id="close-window" aria-label="Close to tray" title="Close">&times;</button>
+      </div>
+    </header>
+
+    <main class="content" id="main-content">
+      <div class="settings-view" id="settings-view">
+        <div class="settings-card">
+          <div class="setting-row">
+            <span class="setting-label">Capture hotkey</span>
+            <button class="hotkey-recorder" id="hotkey-recorder" data-setting="shortcuts.triggerCapture">Ctrl+Shift+K</button>
+          </div>
+        </div>
+        <div class="brand-footer">
+          Made with <span class="heart">&hearts;</span> by <span class="profile-link" id="profile-link">soulfern</span>
+        </div>
+      </div>
+
+      <div class="loading-view" id="loading-view">
+        <div class="loading-card">
+          <h2 class="loading-step" id="loading-step">Setting up OCR engine...</h2>
+          <p class="loading-subtitle" id="loading-subtitle"></p>
+          <div class="bar-wrap"><div class="bar" id="loading-bar"></div></div>
+          <div class="loading-detail" id="loading-detail"></div>
+          <button class="loading-cancel" id="loading-cancel">Cancel</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

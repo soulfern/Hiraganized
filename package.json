@@ -1,0 +1,58 @@
+{
+  "name": "hiraganized",
+  "productName": "Hiraganized",
+  "version": "1.0.0",
+  "description": "Instant Kanji context for Windows.",
+  "main": "src/main/main.js",
+  "author": "Hiraganized",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "package": "electron-builder --dir",
+    "dist": "node build/rebuild.js",
+    "dist:portable": "electron-builder --win portable",
+    "verify": "npm run test",
+    "rebuild": "node build/rebuild.js",
+    "clean": "node build/clean.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.hiraganized.desktop",
+    "productName": "Hiraganized",
+    "artifactName": "Hiraganized-Setup-${version}.${ext}",
+    "asar": true,
+    "compression": "maximum",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "name": "hiraganized"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "portable": {
+      "artifactName": "Hiraganized-Portable-${version}.${ext}"
+    },
+    "electronLanguages": [
+      "en-US",
+      "ja"
+    ]
+  },
+  "dependencies": {}
+}
