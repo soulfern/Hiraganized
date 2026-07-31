@@ -15,7 +15,7 @@
 
 ## Installation
 
-Download and run the latest [release](https://github.com/soulfern/Hiraganized) and complete the installation process.
+Download and run the latest [release](https://github.com/soulfern/Hiraganized/releases) and complete the installation process.
 
 ## License
 
