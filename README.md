@@ -17,10 +17,10 @@
 
 ## 💠 Features
 
-- 🖥️ **Screen-region OCR** powered by [manga-ocr](https://github.com/kha-white/manga-ocr).
-- 🏯 **Online kanji lookups** via [kanjiapi.dev](https://kanjiapi.dev) (single characters) and [Jisho](https://jisho.org) (compounds).
-- 🔰 **Kanji breakdown** with on'yomi / kun'yomi readings, meanings, and JLPT level.
-- ⚡ **Tray-based, always-ready** with a configurable capture hotkey.
+- **Screen-region OCR** powered by [manga-ocr](https://github.com/kha-white/manga-ocr).
+- **Online kanji lookups** via [kanjiapi.dev](https://kanjiapi.dev) (single characters) and [Jisho](https://jisho.org) (compounds).
+- **Kanji breakdown** with on'yomi / kun'yomi readings, meanings, and JLPT level.
+- **Tray-based, always-ready** with a configurable capture hotkey.
 
 ## ⬇️ Install
 
