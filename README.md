@@ -12,7 +12,7 @@
 ## ✨ How it works
 
 1. Press the global capture hotkey.
-2. Drag to select a region of the screen containing Japanese text.
+2. Drag to select a region of the screen containing Japanese kanji.
 3. The selected region is scanned and each kanji (and compounds) is looked up, then shown in a compact popup.
 
 ## 💠 Features
@@ -22,7 +22,7 @@
 - **Kanji breakdown** with on'yomi / kun'yomi readings, meanings, and JLPT level.
 - **Tray-based, always-ready** with a configurable capture hotkey.
 
-## ⬇️ Install
+## ⬇️ Installation
 
 Download and run the [latest release](https://github.com/soulfern/Hiraganized/releases/latest) and complete the installation process.
 
