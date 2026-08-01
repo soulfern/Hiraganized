@@ -3,7 +3,6 @@
 <img src="assets/icon.png" width="128" alt="Hiraganized icon" />
 
 # ⛩️ Hiraganized — Instant Kanji Context
-[![GitHub stars](https://img.shields.io/github/stars/soulfern/Hiraganized?style=social)](https://github.com/soulfern/Hiraganized/stargazers) 
 
 ![Version](https://img.shields.io/github/v/release/soulfern/Hiraganized?style=for-the-badge)
 ![License](https://img.shields.io/github/license/soulfern/Hiraganized?style=for-the-badge)
