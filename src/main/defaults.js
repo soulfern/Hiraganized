@@ -1,19 +1,34 @@
-﻿const DEFAULT_SETTINGS = Object.freeze({
+const THEME_KEYS = Object.freeze([
+  'midnight', 'ocean', 'forest', 'violet', 'crimson', 'amber', 'graphite', 'slate', 'snow', 'cream'
+]);
+
+const DEFAULT_SETTINGS = Object.freeze({
   general: {
     minimizeToTray: false,
     closeToTray: true,
     launchOnStartup: false,
     startMinimized: false,
-    showCompoundCharacters: false
+    showCompoundCharacters: false,
+    maxKanjiLimit: 20,
+    captureDelayMs: 100,
+    magnifier: false,
+    autoDismissSeconds: 0
+  },
+  appearance: {
+    theme: 'midnight',
+    fontScale: 1
   },
   shortcuts: {
     triggerCapture: 'CommandOrControl+Shift+K'
   },
   notifications: {
-    opacity: 96
+    opacity: 100
   },
   advanced: {
     logging: true
+  },
+  debug: {
+    showLogs: false
   }
 });
 
@@ -53,9 +68,16 @@ function clampNumber(value, minimum, maximum, fallback) {
 
 function normalizeSettings(settings) {
   const result = settings;
-  result.notifications.opacity = clampNumber(result.notifications.opacity, 55, 100, DEFAULT_SETTINGS.notifications.opacity);
-  if (!result.general.launchOnStartup) result.general.startMinimized = false;
+  const general = result.general;
+  const appearance = result.appearance;
+  general.maxKanjiLimit = Math.round(clampNumber(general.maxKanjiLimit, 1, 30, DEFAULT_SETTINGS.general.maxKanjiLimit));
+  general.captureDelayMs = Math.round(clampNumber(general.captureDelayMs, 0, 1000, DEFAULT_SETTINGS.general.captureDelayMs));
+  general.autoDismissSeconds = Math.round(clampNumber(general.autoDismissSeconds, 0, 60, DEFAULT_SETTINGS.general.autoDismissSeconds));
+  appearance.fontScale = clampNumber(appearance.fontScale, 0.7, 1.5, DEFAULT_SETTINGS.appearance.fontScale);
+  appearance.theme = THEME_KEYS.includes(appearance.theme) ? appearance.theme : DEFAULT_SETTINGS.appearance.theme;
+  result.notifications.opacity = Math.round(clampNumber(result.notifications.opacity, 30, 100, DEFAULT_SETTINGS.notifications.opacity));
+  if (!general.launchOnStartup) general.startMinimized = false;
   return result;
 }
 
-module.exports = { DEFAULT_SETTINGS, cloneDefaults, mergeSettings };
+module.exports = { DEFAULT_SETTINGS, THEME_KEYS, cloneDefaults, mergeSettings };

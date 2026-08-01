@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('installer', {
   run: (dir) => ipcRenderer.invoke('install:run', dir),
   cancel: () => ipcRenderer.invoke('install:cancel'),
   launchApp: (dir) => ipcRenderer.invoke('install:launch-app', dir),
+  minimize: () => ipcRenderer.invoke('install:minimize'),
   onProgress: (cb) => {
     const handler = (_ev, data) => cb(data);
     ipcRenderer.on('install:progress', handler);

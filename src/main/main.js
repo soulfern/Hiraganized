@@ -12,17 +12,14 @@ const { recognizeImage, cropRegion, saveTempPng, startOcr, stopOcr, tryCleanup, 
 
 const root = path.resolve(__dirname, '..', '..');
 
-// --- Uninstaller mode ---
-// Launched via `Hiraganized.exe --uninstall` from Windows "Installed apps".
-// Runs a dedicated window and skips the normal app flow + single-instance lock.
 if (process.argv.includes('--uninstall')) {
   const { runUninstaller } = require('./uninstaller');
   runUninstaller();
   return;
 }
 
-const POPUP_WIDTH = 300;
-const POPUP_HEIGHT = 220;
+const POPUP_WIDTH = 310;
+const POPUP_HEIGHT = 200;
 const MAIN_WINDOW_WIDTH = 520;
 const MAIN_WINDOW_HEIGHT = 460;
 const MAIN_WINDOW_MIN_WIDTH = 520;
@@ -31,7 +28,9 @@ const MAIN_WINDOW_MIN_HEIGHT = 460;
 let tray = null;
 let mainWindow = null;
 let overlayWindow = null;
-let popupWindow = null; // single reusable popup window
+let popupWindow = null;
+
+let logsWindow = null;
 let activePopups = [];
 let settings = {};
 let configStore = null;
@@ -39,9 +38,16 @@ let dictionary = null;
 let logger = null;
 let isQuitting = false;
 let captureInProgress = false;
+let captureTimeout = null;
 let trayNotifiedOnce = false;
+
+function releaseCapture() {
+  if (captureTimeout) { clearTimeout(captureTimeout); captureTimeout = null; }
+  captureInProgress = false;
+}
 let cachedAppIcon = null;
 let windowStateSaveTimer = null;
+let logsUnsubscribe = null;
 
 const state = {
   popupVisible: false,
@@ -72,46 +78,88 @@ async function ensureOcrStarted() {
 function appIcon() {
   if (cachedAppIcon) return cachedAppIcon;
   try {
-    const sizes = [16, 32, 48, 64];
     const dir = path.join(root, 'assets');
-    for (const size of sizes) {
-      const p = path.join(dir, `icon${size}.png`);
-      if (fs.existsSync(p)) return (cachedAppIcon = nativeImage.createFromPath(p));
-    }
+    // Prefer the full-res icon for window/tray quality; Electron scales it.
     const p = path.join(dir, 'icon.png');
     if (fs.existsSync(p)) return (cachedAppIcon = nativeImage.createFromPath(p));
+    const sizes = [64, 48, 32, 16];
+    for (const size of sizes) {
+      const sp = path.join(dir, `icon${size}.png`);
+      if (fs.existsSync(sp)) return (cachedAppIcon = nativeImage.createFromPath(sp));
+    }
     const ico = path.join(dir, 'icon.ico');
     if (fs.existsSync(ico)) return (cachedAppIcon = nativeImage.createFromPath(ico));
   } catch {}
   return nativeImage.createEmpty();
 }
 
-// --- Capture pipeline ---
+let captureEpoch = 0;
 
 async function triggerCapture() {
   if (captureInProgress) return { ok: false, reason: 'busy' };
   captureInProgress = true;
+  captureEpoch += 1;
+  // Safety: if the overlay is shown but the user never selects or presses Esc,
+  // auto-release the busy latch so the hotkey stays usable.
+  captureTimeout = setTimeout(() => { captureInProgress = false; }, 60000);
   try {
+
+    const magnifierEnabled = settings.general?.magnifier !== false;
+    const framesPromise = magnifierEnabled
+      ? getScreenFrames().then((frames) => frames.map((f) => ({
+          dataUrl: f.dataUrl,
+          displayBounds: f.displayBounds,
+          thumbnailWidth: f.thumbnailWidth,
+          thumbnailHeight: f.thumbnailHeight
+        })))
+      : Promise.resolve(null);
+
     createOverlayWindow();
+    const frames = await framesPromise;
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      const send = () => {
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+          overlayWindow.webContents.send('overlay:image', { frames, magnifier: magnifierEnabled });
+        }
+      };
+      if (overlayWindow.webContents.isLoading()) {
+        overlayWindow.webContents.once('did-finish-load', send);
+        // A failed overlay load must not strand the capture forever.
+        overlayWindow.webContents.once('did-fail-load', () => {
+          destroyOverlay();
+          releaseCapture();
+        });
+      } else send();
+    }
     return { ok: true };
   } catch (error) {
-    captureInProgress = false;
+
+    destroyOverlay();
+    releaseCapture();
     return { ok: false, error: error.message };
   }
 }
 
 async function handleSelection(bounds) {
+  const epoch = captureEpoch;
   await destroyOverlay();
   if (!bounds || bounds.width < 10 || bounds.height < 10) {
-    captureInProgress = false;
+    releaseCapture();
     return;
   }
+  if (epoch !== captureEpoch) return;
 
   let tempPath = null;
   try {
-    // Give the compositor time to remove the selection overlay from the desktop frame.
-    await new Promise((resolve) => setTimeout(resolve, 75));
-    const frames = await getScreenFrames({ maxWidth: 2400, preferredDisplayBounds: bounds });
+
+    // Give the compositor time to drop the hidden overlay from the desktop
+    // frame, even when the user set capture delay to 0 — otherwise the dim
+    // overlay can appear inside the captured region.
+    const delay = Math.max(Number(settings.general?.captureDelayMs) || 0, 50);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (epoch !== captureEpoch) return;
+    const frames = await getScreenFrames({ maxWidth: 3840, preferredDisplayBounds: bounds });
+    if (epoch !== captureEpoch) return;
 
     const cursor = screen.getDisplayNearestPoint({
       x: bounds.x + Math.round(bounds.width / 2),
@@ -146,6 +194,7 @@ async function handleSelection(bounds) {
       showWarningPopup(`OCR error\n${ocrErr.message}`, bounds);
       return;
     }
+    if (epoch !== captureEpoch) return;
 
     logger?.info(`OCR: "${text}"`);
 
@@ -158,28 +207,25 @@ async function handleSelection(bounds) {
       const chars = dictionary.extractKanji(text);
       const seqs = dictionary.extractSequences(text);
 
-      if (chars.length > 10) {
+      const maxKanji = settings.general?.maxKanjiLimit ?? 10;
+      if (chars.length > maxKanji) {
         showMainWindow();
         dialog.showMessageBox(mainWindow, {
           type: 'warning',
           title: 'Too many kanji',
-          message: `Selected region contains ${chars.length} kanji (max 10). Please select a smaller region.`
+          message: `Selected region contains ${chars.length} kanji (max ${maxKanji}). Please select a smaller region.`
         });
-        logger?.info(`Capture rejected: ${chars.length} kanji exceeds limit of 10`);
+        logger?.info(`Capture rejected: ${chars.length} kanji exceeds limit of ${maxKanji}`);
         return;
       }
 
       if (chars.length === 0) {
-        showOcrPopup(text, bounds);
+        showWarningPopup('No kanji detected', bounds);
         return;
       }
 
       const entries = [];
 
-      // A raw kanji run may fuse several real words (e.g. 毎日日本語 = 毎日 + 日本語).
-      // Segment each run into genuine dictionary compounds; only those become
-      // compound entries (with per-character children). Non-compound kanji fall
-      // through to the individual-character loop below.
       for (const seq of seqs) {
         if (seq.length < 2) continue;
         const pieces = await dictionary.segmentSequence(seq);
@@ -205,11 +251,11 @@ async function handleSelection(bounds) {
           }
         }
       }
-      for (const char of chars) {
-        if (seen.has(char)) continue;
-        seen.add(char);
-        const result = await dictionary.lookup(char);
-        if (result) entries.push(result);
+      const remaining = chars.filter((char) => !seen.has(char));
+      const lookupResults = await Promise.all(remaining.map((char) => dictionary.lookup(char)));
+      for (let i = 0; i < remaining.length; i++) {
+        seen.add(remaining[i]);
+        if (lookupResults[i]) entries.push(lookupResults[i]);
       }
 
       if (entries.length > 0) {
@@ -225,7 +271,7 @@ async function handleSelection(bounds) {
     showWarningPopup(`Capture error\n${error.message}`, bounds);
   } finally {
     if (tempPath) try { fs.unlinkSync(tempPath); } catch {}
-    captureInProgress = false;
+    releaseCapture();
   }
 }
 
@@ -237,7 +283,7 @@ async function getScreenFrames(options = {}) {
     fetchWindowIcons: false
   });
   const displays = screen.getAllDisplays();
-  // Only keep the display nearest the selection point (perf: skip full-screen captures of other monitors).
+
   const preferred = options?.preferredDisplayBounds
     ? screen.getDisplayNearestPoint({
         x: options.preferredDisplayBounds.x + Math.round(options.preferredDisplayBounds.width / 2),
@@ -264,9 +310,15 @@ async function getScreenFrames(options = {}) {
   return result;
 }
 
-// --- Overlay window ---
+let overlayReady = false;
 
 function createOverlayWindow() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('overlay:reset');
+    overlayWindow.showInactive();
+    overlayWindow.focus();
+    return;
+  }
   const displays = screen.getAllDisplays();
   const left = Math.min(...displays.map((d) => d.bounds.x));
   const top = Math.min(...displays.map((d) => d.bounds.y));
@@ -296,15 +348,19 @@ function createOverlayWindow() {
 
   overlayWindow.loadFile(path.join(__dirname, '../renderer/overlay.html'));
 
-  overlayWindow.once('ready-to-show', () => {
-    overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-    overlayWindow.showInactive();
-    overlayWindow.focus();
-    overlayWindow.setVisibleOnAllWorkspaces(true);
+  const win = overlayWindow;
+  win.once('ready-to-show', () => {
+    if (overlayWindow !== win) return;
+    overlayReady = true;
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.showInactive();
+    win.focus();
+    win.setVisibleOnAllWorkspaces(true);
   });
 
-  overlayWindow.on('closed', () => {
-    overlayWindow = null;
+  win.on('closed', () => {
+    overlayReady = false;
+    if (overlayWindow === win) overlayWindow = null;
   });
 }
 
@@ -314,33 +370,34 @@ function destroyOverlay() {
     overlayWindow = null;
     return Promise.resolve();
   }
-  return new Promise((resolve) => {
-    win.once('closed', resolve);
-    win.close();
-  });
+  win.hide();
+  return Promise.resolve();
 }
 
-// --- Popup system ---
-
-function popupBounds(pos) {
+function popupBounds(pos, { width = POPUP_WIDTH, height = POPUP_HEIGHT } = {}) {
+  const scaled = scaledPopupSize(width, height);
+  width = scaled.width;
+  height = scaled.height;
   const display = pos ? screen.getDisplayNearestPoint({ x: pos.x, y: pos.y }) : screen.getPrimaryDisplay();
   const area = display.workArea;
 
   let x, y;
   if (pos) {
-    x = Math.round(pos.x - POPUP_WIDTH / 2);
+    x = Math.round(pos.x - width / 2);
     y = Math.round(pos.y + 10);
-    x = Math.max(area.x + 4, Math.min(x, area.x + area.width - POPUP_WIDTH - 4));
-    y = Math.max(area.y + 4, Math.min(y, area.y + area.height - POPUP_HEIGHT - 4));
+
+    if (y + height > area.y + area.height) y = Math.round(pos.y - height - 10);
+    if (x + width > area.x + area.width) x = area.x + area.width - width - 4;
+    x = Math.max(area.x + 4, Math.min(x, area.x + area.width - width - 4));
+    y = Math.max(area.y + 4, Math.min(y, area.y + area.height - height - 4));
   } else {
-    x = area.x + Math.round((area.width - POPUP_WIDTH) / 2);
-    y = area.y + Math.round((area.height - POPUP_HEIGHT) / 2);
+    x = area.x + Math.round((area.width - width) / 2);
+    y = area.y + Math.round((area.height - height) / 2);
   }
 
-  return { x, y, width: POPUP_WIDTH, height: POPUP_HEIGHT };
+  return { x, y, width, height };
 }
 
-/** Single reusable popup window: created once, re-targeted per payload. */
 function getPopupWindow(bounds, { width = POPUP_WIDTH, height = POPUP_HEIGHT } = {}) {
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.setBounds({ ...bounds, width, height });
@@ -358,7 +415,7 @@ function getPopupWindow(bounds, { width = POPUP_WIDTH, height = POPUP_HEIGHT } =
     skipTaskbar: true,
     resizable: false,
     show: false,
-    hasShadow: true,
+    hasShadow: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -370,27 +427,60 @@ function getPopupWindow(bounds, { width = POPUP_WIDTH, height = POPUP_HEIGHT } =
   popupWindow.setMenuBarVisibility(false);
   popupWindow.loadFile(path.join(__dirname, '../renderer/popup.html'));
 
-  popupWindow.on('closed', () => {
-    popupWindow = null;
+  const win = popupWindow;
+  win.on('closed', () => {
+    clearAutoDismissTimer();
+
+    if (popupWindow === win) popupWindow = null;
     activePopups = [];
     state.popupVisible = false;
     publishState();
   });
 
+  popupWindow.webContents.once('did-finish-load', () => publishState());
+
   return popupWindow;
 }
 
+let autoDismissTimer = null;
+
+function clearAutoDismissTimer() {
+  if (autoDismissTimer) { clearTimeout(autoDismissTimer); autoDismissTimer = null; }
+}
+
+function armAutoDismiss() {
+  clearAutoDismissTimer();
+  const seconds = Number(settings.general?.autoDismissSeconds) || 0;
+  if (seconds > 0) {
+    autoDismissTimer = setTimeout(() => {
+      autoDismissTimer = null;
+      hidePopup();
+    }, seconds * 1000);
+  }
+}
+
+function scaledPopupSize(baseW, baseH) {
+  const s = Number(settings.appearance?.fontScale) || 1;
+  return { width: Math.round(baseW * s), height: Math.round(baseH * s) };
+}
+
 function sendToPopup(channel, payload, bounds, { width = POPUP_WIDTH, height = POPUP_HEIGHT } = {}) {
+  // width/height are already scale-adjusted by callers (popupBounds for the
+  // kanji path, scaledPopupSize for OCR/warning) — do not scale again here.
   const win = getPopupWindow(bounds, { width, height });
   const send = () => {
     if (win.isDestroyed()) return;
     win.webContents.send(channel, payload);
-    win.setOpacity(Math.max(0.55, Math.min(1, Number(settings.notifications?.opacity) / 100)));
+    win.setOpacity(Math.max(0.3, Math.min(1, Number(settings.notifications?.opacity) / 100)));
     win.showInactive();
     win.setAlwaysOnTop(true, 'floating');
+
+    armAutoDismiss();
   };
   if (win.webContents.isLoading()) {
     win.webContents.once('did-finish-load', send);
+
+    win.webContents.once('did-fail-load', send);
   } else {
     send();
   }
@@ -402,8 +492,6 @@ function sendToPopup(channel, payload, bounds, { width = POPUP_WIDTH, height = P
 function showKanjiPopup(entries, position) {
   if (!entries.length) return;
 
-  // Respect the "show compound characters" setting: when disabled, a compound
-  // appears as a single entry rather than being expanded into its characters.
   const showCompoundChars = settings.general?.showCompoundCharacters !== false;
 
   const flatEntries = [];
@@ -419,7 +507,8 @@ function showKanjiPopup(entries, position) {
 }
 
 function hidePopup() {
-  if (popupWindow && !popupWindow.isDestroyed()) popupWindow.close();
+  clearAutoDismissTimer();
+  if (popupWindow && !popupWindow.isDestroyed()) popupWindow.hide();
   activePopups = [];
   state.popupVisible = false;
   publishState();
@@ -431,8 +520,7 @@ function showOcrPopup(text, bounds) {
     y: bounds.y + Math.round(bounds.height / 2)
   });
 
-  const pw = 320;
-  const ph = 140;
+  const { width: pw, height: ph } = scaledPopupSize(320, 140);
 
   let px = Math.round(bounds.x + (bounds.width - pw) / 2);
   let py = Math.round(bounds.y + bounds.height + 20);
@@ -453,8 +541,7 @@ function showWarningPopup(message, bounds) {
     y: bounds.y + Math.round(bounds.height / 2)
   });
 
-  const pw = 300;
-  const ph = 120;
+  const { width: pw, height: ph } = scaledPopupSize(300, 120);
 
   let px = Math.round(bounds.x + (bounds.width - pw) / 2);
   let py = Math.round(bounds.y + bounds.height + 20);
@@ -469,7 +556,7 @@ function showWarningPopup(message, bounds) {
   sendToPopup('popup:warning', message, { x: px, y: py }, { width: pw, height: ph });
 }
 
-let windowState = { x: undefined, y: undefined, width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT, maximized: false };
+let windowState = { width: MAIN_WINDOW_WIDTH, height: MAIN_WINDOW_HEIGHT };
 const windowStatePath = path.join(app.getPath('userData'), 'window-state.json');
 
 function saveWindowState() {
@@ -480,11 +567,7 @@ function saveWindowState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try {
     const bounds = mainWindow.getBounds();
-    windowState = {
-      x: bounds.x, y: bounds.y,
-      width: bounds.width, height: bounds.height,
-      maximized: mainWindow.isMaximized()
-    };
+    windowState = { width: bounds.width, height: bounds.height };
     fs.writeFileSync(windowStatePath, JSON.stringify(windowState));
   } catch {}
 }
@@ -498,22 +581,16 @@ function restoreWindowState() {
   try {
     if (fs.existsSync(windowStatePath)) {
       const data = JSON.parse(fs.readFileSync(windowStatePath, 'utf8'));
-      if (data && typeof data === 'object') Object.assign(windowState, data);
+      if (data && typeof data === 'object') {
+        windowState.width = data.width;
+        windowState.height = data.height;
+      }
     }
   } catch {}
 
-  const display = Number.isFinite(windowState.x) && Number.isFinite(windowState.y)
-    ? screen.getDisplayNearestPoint({ x: windowState.x, y: windowState.y })
-    : screen.getPrimaryDisplay();
-  const area = display.workArea;
+  const area = screen.getPrimaryDisplay().workArea;
   windowState.width = Math.min(area.width, Math.max(MAIN_WINDOW_MIN_WIDTH, Number(windowState.width) || MAIN_WINDOW_WIDTH));
   windowState.height = Math.min(area.height, Math.max(MAIN_WINDOW_MIN_HEIGHT, Number(windowState.height) || MAIN_WINDOW_HEIGHT));
-  if (Number.isFinite(windowState.x)) {
-    windowState.x = Math.max(area.x, Math.min(windowState.x, area.x + area.width - windowState.width));
-  }
-  if (Number.isFinite(windowState.y)) {
-    windowState.y = Math.max(area.y, Math.min(windowState.y, area.y + area.height - windowState.height));
-  }
 }
 
 function createMainWindow() {
@@ -521,8 +598,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: windowState.width || MAIN_WINDOW_WIDTH,
     height: windowState.height || MAIN_WINDOW_HEIGHT,
-    x: windowState.x,
-    y: windowState.y,
+    center: true,
     minWidth: MAIN_WINDOW_MIN_WIDTH,
     minHeight: MAIN_WINDOW_MIN_HEIGHT,
     icon: appIcon(),
@@ -543,7 +619,11 @@ function createMainWindow() {
     const startHidden =
       settings.general.minimizeToTray ||
       (settings.general.startMinimized === true && startedFromStartup());
-    if (!startHidden) mainWindow.show();
+    if (startHidden) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+    }
     publishState();
   });
 
@@ -566,9 +646,66 @@ function createMainWindow() {
   mainWindow.on('hide', refreshTrayMenu);
 }
 
+function createLogsWindow() {
+  if (logsWindow && !logsWindow.isDestroyed()) {
+    logsWindow.show();
+    logsWindow.focus();
+    return;
+  }
+  logsWindow = new BrowserWindow({
+    width: 760,
+    height: 520,
+    minWidth: 480,
+    minHeight: 300,
+    icon: appIcon(),
+    frame: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+  logsWindow.setMenuBarVisibility(false);
+  logsWindow.loadFile(path.join(__dirname, '../renderer/logs.html'));
+
+  logsWindow.once('ready-to-show', () => {
+    if (logsWindow && !logsWindow.isDestroyed()) logsWindow.show();
+  });
+
+  logsWindow.webContents.once('did-finish-load', () => publishState());
+
+  const win = logsWindow;
+  win.on('closed', () => {
+
+    if (logsWindow === win) logsWindow = null;
+    if (logsUnsubscribe) { logsUnsubscribe(); logsUnsubscribe = null; }
+    if (settings.debug?.showLogs) {
+      settings = configStore.update({ debug: { showLogs: false } });
+      publishState();
+    }
+  });
+
+  logsUnsubscribe = logger.onLine((line) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('logs:line', line);
+    }
+  });
+  const recentLines = logger.recent(200);
+  const sendRecent = () => {
+    if (win && !win.isDestroyed()) {
+      for (const line of recentLines) win.webContents.send('logs:line', line);
+    }
+  };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', sendRecent);
+  else sendRecent();
+}
+
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  trayNotifiedOnce = false; // allow next hide-to-tray to notify again
+  trayNotifiedOnce = false;
+
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -577,7 +714,7 @@ function showMainWindow() {
 
 function showTrayBackgroundNotification() {
   if (trayNotifiedOnce) return;
-  // Reset the gate when the window is shown again, so re-hiding notifies each session.
+
   trayNotifiedOnce = true;
   try {
     const ico = appIcon();
@@ -601,8 +738,6 @@ function showTrayBackgroundNotification() {
   }
 }
 
-// --- Tray ---
-
 function buildTray() {
   tray = new Tray(appIcon());
   tray.setToolTip('Hiraganized');
@@ -623,8 +758,6 @@ function refreshTrayMenu() {
   ]));
 }
 
-// --- Shortcuts ---
-
 function registerShortcuts() {
   globalShortcut.unregisterAll();
 
@@ -639,13 +772,6 @@ function registerShortcuts() {
   }
 }
 
-// --- IPC handlers ---
-
-/**
- * Sync the "Launch on startup" OS login item with the setting. When enabled the
- * app is added to Windows startup (HKCU Run key) and launched with `--hidden`
- * so the "Start minimized" setting can suppress the window on boot.
- */
 function applyLoginItemSettings() {
   try {
     const enabled = settings.general?.launchOnStartup === true;
@@ -657,13 +783,13 @@ function applyLoginItemSettings() {
   }
 }
 
-/** True when this launch was an automatic startup with the --hidden flag. */
 function startedFromStartup() {
   return process.argv.includes('--hidden');
 }
 
 function setupIpc() {
-  ipcMain.handle('app:update-settings', (_event, patch) => {
+  ipcMain.handle('app:update-settings', (event, patch) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
     if (typeof patch !== 'object' || !patch) return { ok: false };
     settings = configStore.update(patch);
     if (Object.prototype.hasOwnProperty.call(patch, 'advanced') && Object.prototype.hasOwnProperty.call(patch.advanced, 'logging')) {
@@ -675,8 +801,34 @@ function setupIpc() {
     if (Object.prototype.hasOwnProperty.call(patch.shortcuts || {}, 'triggerCapture')) {
       registerShortcuts();
     }
+    if (Object.prototype.hasOwnProperty.call(patch.notifications || {}, 'opacity')) {
+
+      if (popupWindow && !popupWindow.isDestroyed()) {
+        popupWindow.setOpacity(Math.max(0.3, Math.min(1, Number(settings.notifications?.opacity) / 100)));
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch.debug || {}, 'showLogs')) {
+      if (settings.debug.showLogs) createLogsWindow();
+      else if (logsWindow && !logsWindow.isDestroyed()) logsWindow.close();
+    }
     refreshTrayMenu();
     publishState();
+    return { ok: true };
+  });
+  ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('app:reset-settings', () => {
+    settings = configStore.reset();
+
+    if (logsWindow && !logsWindow.isDestroyed()) logsWindow.close();
+    applyLoginItemSettings();
+    registerShortcuts();
+    refreshTrayMenu();
+    publishState();
+    return { ok: true };
+  });
+  ipcMain.handle('dictionary:clear-cache', () => {
+    dictionary?.clearCache();
+    logger?.info('Dictionary cache cleared');
     return { ok: true };
   });
   ipcMain.handle('app:hide-window', () => { mainWindow?.hide(); showTrayBackgroundNotification(); refreshTrayMenu(); });
@@ -689,12 +841,14 @@ function setupIpc() {
   });
   ipcMain.handle('shell:open-external', async (_event, url) => {
     if (typeof url !== 'string') return;
-    // Only allow http(s) — never file:, shell:, etc.
+
     if (!/^https?:\/\//i.test(url)) return;
+
     try { await shell.openExternal(url); } catch {}
   });
-  ipcMain.on('selection:commit', (_event, bounds) => {
-    const origin = overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.getBounds() : { x: 0, y: 0 };
+  ipcMain.on('selection:commit', (event, bounds) => {
+    if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) return;
+    const origin = overlayWindow.getBounds();
     const globalBounds = bounds && {
       x: Number(bounds.x) + origin.x,
       y: Number(bounds.y) + origin.y,
@@ -703,9 +857,20 @@ function setupIpc() {
     };
     handleSelection(globalBounds);
   });
-  ipcMain.on('selection:cancel', () => {
-    captureInProgress = false;
+  ipcMain.on('selection:cancel', (event) => {
+    if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) return;
+    releaseCapture();
     destroyOverlay();
+  });
+  ipcMain.on('app:close-logs', (event) => {
+    if (!logsWindow || logsWindow.isDestroyed() || event.sender !== logsWindow.webContents) return;
+    logsWindow.close();
+  });
+  ipcMain.on('popup:resize', (event, height) => {
+    if (!popupWindow || popupWindow.isDestroyed() || event.sender !== popupWindow.webContents) return;
+    const h = Math.max(60, Math.min(600, Math.round(Number(height) || 0)));
+    const b = popupWindow.getBounds();
+    popupWindow.setBounds({ x: b.x, y: b.y, width: b.width, height: h });
   });
 }
 
@@ -717,14 +882,14 @@ function quitApp() {
   globalShortcut.unregisterAll();
   stopOcr();
   tryCleanup();
-  configStore?.save(); // flush debounced settings
-  dictionary?.flush(); // flush debounced dictionary cache
+  configStore?.save();
+
+  dictionary?.flush();
+
   logger?.info('Application shutting down');
   logger?.close();
   app.quit();
 }
-
-// --- Single instance ---
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -733,16 +898,18 @@ if (!gotLock) {
 
 app.on('second-instance', () => showMainWindow());
 
-// --- App lifecycle ---
-
 app.whenReady().then(async () => {
   app.setAppUserModelId('Hiraganized');
   configStore = new ConfigStore(path.join(app.getPath('userData'), 'settings.json'), cloneDefaults());
   settings = configStore.load();
+
+  if (settings.debug?.showLogs) {
+    settings = configStore.update({ debug: { showLogs: false } });
+  }
   logger = new Logger(app.getPath('logs'), settings.advanced?.logging !== false);
   dictionary = new DictionaryService(path.join(app.getPath('userData'), 'dictionary-cache.json')).load();
 
-  applyLoginItemSettings(); // sync the OS startup entry with the saved setting
+  applyLoginItemSettings();
 
   createMainWindow();
 
@@ -767,6 +934,10 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+});
+
+app.on('window-all-closed', () => {
+  if (!isQuitting) quitApp();
 });
 
 app.on('will-quit', () => {

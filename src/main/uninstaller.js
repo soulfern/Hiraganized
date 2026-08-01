@@ -2,24 +2,26 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
 let uninstallWindow = null;
 
-/** Resolve every path the uninstaller may touch. */
 function getPaths() {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
   const home = process.env.USERPROFILE || os.homedir();
   return {
-    // Where Hiraganized.exe actually lives (e.g. C:\Program Files\Hiraganized).
+
+
     installDir: path.dirname(process.execPath),
     userData: app.getPath('userData'),
     desktopLnk: path.join(home, 'Desktop', 'Hiraganized.lnk'),
     startMenuLnk: path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Hiraganized.lnk'),
     python: path.join(localAppData, 'Programs', 'Python', 'Python312'),
     modelCache: path.join(home, '.cache', 'huggingface', 'hub', 'models--kha-white--manga-ocr-base'),
-    regKey: 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Hiraganized'
+    regKey: 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Hiraganized',
+    markerPath: path.join(require('os').tmpdir(), `hiraganized-uninstall-${crypto.randomUUID()}.marker`)
   };
 }
 
@@ -32,25 +34,21 @@ function psEscape(s) {
   return String(s).replace(/'/g, "''");
 }
 
-/**
- * Build the elevated cleanup script. It runs AFTER this process quits: it waits
- * for Hiraganized to exit, force-kills any stragglers (so file/registry locks
- * release), then removes the chosen targets and finally deletes itself.
- */
+
 function buildCleanupScript(p, options) {
   const L = [];
   L.push('$ErrorActionPreference = "SilentlyContinue"');
-  // Wait up to ~15s for Hiraganized processes to exit on their own.
+
   L.push('for ($i=0; $i -lt 30; $i++) { if (-not (Get-Process -Name "Hiraganized" -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 500 }');
   L.push('taskkill /F /IM "Hiraganized.exe" 2>$null | Out-Null');
   L.push('Start-Sleep -Milliseconds 800');
-  // App files (retry: the exe lock can linger briefly after exit).
+
   L.push(`$app = '${psEscape(p.installDir)}'`);
   L.push('for ($i=0; $i -lt 10; $i++) { if (-not (Test-Path -LiteralPath $app)) { break }; Remove-Item -LiteralPath $app -Recurse -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 }');
-  // Shortcuts.
+
   L.push(`Remove-Item -LiteralPath '${psEscape(p.desktopLnk)}' -Force -ErrorAction SilentlyContinue`);
   L.push(`Remove-Item -LiteralPath '${psEscape(p.startMenuLnk)}' -Force -ErrorAction SilentlyContinue`);
-  // Registry entry (removes it from "Installed apps").
+
   L.push(`Remove-Item -Path '${psEscape(p.regKey)}' -Recurse -Force -ErrorAction SilentlyContinue`);
   if (options.settings) {
     L.push(`Remove-Item -LiteralPath '${psEscape(p.userData)}' -Recurse -Force -ErrorAction SilentlyContinue`);
@@ -59,7 +57,10 @@ function buildCleanupScript(p, options) {
     L.push(`Remove-Item -LiteralPath '${psEscape(p.python)}' -Recurse -Force -ErrorAction SilentlyContinue`);
     L.push(`Remove-Item -LiteralPath '${psEscape(p.modelCache)}' -Recurse -Force -ErrorAction SilentlyContinue`);
   }
-  // Self-delete the cleanup script.
+
+
+  L.push(`New-Item -ItemType File -Path '${psEscape(p.markerPath)}' -Force | Out-Null`);
+
   L.push('Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue');
   return L.join('\r\n');
 }
@@ -87,33 +88,60 @@ function createUninstallWindow() {
 async function executeUninstall(options) {
   const p = getPaths();
   const scriptContent = buildCleanupScript(p, options);
-  const scriptPath = path.join(require('os').tmpdir(), `hiraganized-uninstall-${Date.now()}.ps1`);
+
+
+
+
+  const workDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'hiraganized-uninstall-'));
+  const scriptPath = path.join(workDir, 'cleanup.ps1');
+  const launchScriptPath = path.join(workDir, 'launch.ps1');
 
   try {
     fs.writeFileSync(scriptPath, scriptContent, 'utf8');
   } catch (error) {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
     return { success: false, error: `Failed to write cleanup script: ${error.message}` };
   }
 
-  // Launch the elevated cleanup script detached (it waits for us to exit, then cleans up).
-  // Use Start-Process with -Verb RunAs for elevation; -WindowStyle Hidden keeps it quiet.
+
+
   const launchPs1 = `Start-Process -FilePath "powershell.exe" -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${psEscape(scriptPath)}') -Verb RunAs -WindowStyle Hidden`;
-  const launchScriptPath = path.join(require('os').tmpdir(), `hiraganized-launch-${Date.now()}.ps1`);
+  fs.writeFileSync(launchScriptPath, launchPs1, 'utf8');
 
   try {
-    fs.writeFileSync(launchScriptPath, launchPs1, 'utf8');
     spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launchScriptPath], {
       detached: true,
       stdio: 'ignore',
     }).unref();
-    // Give it a moment to spawn, then quit so the cleanup script can proceed.
-    setTimeout(() => app.quit(), 800);
-    return { success: true };
   } catch (error) {
-    try { fs.unlinkSync(scriptPath); } catch (_) {}
-    try { fs.unlinkSync(launchScriptPath); } catch (_) {}
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
     return { success: false, error: `Failed to launch cleanup: ${error.message}` };
   }
+
+
+
+
+  let started = false;
+  for (let i = 0; i < 60; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (fs.existsSync(p.markerPath)) { started = true; break; }
+    if (i === 59) {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+      return { success: false, error: 'Elevation declined. Uninstall was not started.' };
+    }
+  }
+
+  if (!started) {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+    return { success: false, error: 'Elevation declined. Uninstall was not started.' };
+  }
+
+  // Clean up our temp artifacts (marker + workDir incl. launch.ps1).
+  try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+  try { fs.unlinkSync(p.markerPath); } catch (_) {}
+
+  setTimeout(() => app.quit(), 800);
+  return { success: true };
 }
 
 function setupUninstallIpc() {
@@ -151,7 +179,16 @@ function setupUninstallIpc() {
 }
 
 function runUninstaller() {
-  // Skip single-instance lock for uninstaller mode.
+  // Silent path (QuietUninstallString: --uninstall --quiet): run cleanup with
+  // default options (keep settings + OCR) and exit without a window.
+  if (process.argv.includes('--quiet')) {
+    app.whenReady().then(async () => {
+      const result = await executeUninstall({ settings: false, ocr: false });
+      app.exit(result?.success ? 0 : 1);
+    });
+    return;
+  }
+
   app.whenReady().then(() => {
     createUninstallWindow();
     setupUninstallIpc();

@@ -49,7 +49,8 @@ class ConfigStore {
   }
 
   _scheduleSave() {
-    // Debounce: hotkey recording fires many rapid partial updates.
+
+
     if (this._saveTimer) clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => { this._saveTimer = null; this.save(); }, 250);
   }

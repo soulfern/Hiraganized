@@ -6,8 +6,10 @@ const KANJI_CHARACTER_PATTERN = /^[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]$/u;
 const KANJI_SEQUENCE_PATTERN = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{2,}/g;
 
 const KANJI_TIMEOUT_MS = 3000;
-const COMPOUND_TIMEOUT_MS = 8000;
+const COMPOUND_TIMEOUT_MS = 4000;
 const PERSIST_DEBOUNCE_MS = 2000;
+
+const SEGMENT_LOOKUP_BUDGET = 12;
 
 const EMPTY_RESULT = {
   found: false,
@@ -24,23 +26,20 @@ function emptyFor(character) {
   return { character, unicode: unicodeOf(character), ...EMPTY_RESULT };
 }
 
-/**
- * Online kanji/compound lookup with a local write-through cache. The first
- * lookup of a character or compound fetches from the network; the successful
- * result is kept in memory and persisted to disk (debounced), so subsequent
- * lookups — this session or future ones — resolve instantly and offline.
- * In-flight dedup ensures identical concurrent lookups share one fetch.
- */
 class DictionaryService {
   constructor(cachePath) {
-    this._pending = new Map();   // key -> in-flight promise (dedup, cleared on settle)
-    this._cache = new Map();     // key -> resolved result (found entries only)
+    this._pending = new Map();
+
+    this._cache = new Map();
+
     this._cachePath = cachePath || null;
     this._dirty = false;
     this._persistTimer = null;
+    this._epoch = 0;
+
   }
 
-  /** Load any previously persisted cache from disk. Safe to call once at startup. */
+
   load(cachePath) {
     if (cachePath) this._cachePath = cachePath;
     if (!this._cachePath) return this;
@@ -53,12 +52,13 @@ class DictionaryService {
           }
         }
       }
-    } catch { /* corrupt cache is non-fatal — we just re-fetch */ }
+    } catch {  }
     return this;
   }
 
   _cacheResult(key, result) {
-    // Only persist genuine hits — never cache failures/placeholders.
+
+
     if (!result || result.found !== true) return;
     this._cache.set(key, result);
     this._dirty = true;
@@ -67,11 +67,17 @@ class DictionaryService {
     }
   }
 
+
+  _staleEpoch(epoch) {
+    return epoch !== this._epoch;
+  }
+
   _flush() {
     if (this._persistTimer) { clearTimeout(this._persistTimer); this._persistTimer = null; }
     if (!this._cachePath || !this._dirty) return;
     try {
-      // Persist genuine hits only — never the in-memory "not a word" markers.
+
+
       const obj = {};
       for (const [key, value] of this._cache) {
         if (value && value.__notWord) continue;
@@ -82,18 +88,31 @@ class DictionaryService {
       fs.writeFileSync(tmp, JSON.stringify(obj), 'utf8');
       fs.renameSync(tmp, this._cachePath);
       this._dirty = false;
-    } catch { /* best-effort; will retry on next cache write */ }
+    } catch {  }
   }
 
-  /** Persist immediately (call on app quit to flush any pending debounce). */
+
   flush() {
     this._flush();
+  }
+
+
+  clearCache() {
+    this._epoch += 1;
+    this._cache.clear();
+    this._pending.clear();
+    this._dirty = false;
+    if (this._persistTimer) { clearTimeout(this._persistTimer); this._persistTimer = null; }
+    try {
+      if (this._cachePath) fs.rmSync(this._cachePath, { force: true });
+    } catch {  }
   }
 
   _track(key, promise) {
     this._pending.set(key, promise);
     promise.finally(() => {
-      // Only clear if this exact promise is still the tracked one.
+
+
       if (this._pending.get(key) === promise) this._pending.delete(key);
     }).catch(() => {});
     return promise;
@@ -104,14 +123,17 @@ class DictionaryService {
     if (!value) return emptyFor('');
     if (!KANJI_CHARACTER_PATTERN.test(value)) return emptyFor(value);
 
-    // 1. Local cache (instant, offline).
+
+
     const cached = this._cache.get(value);
     if (cached) return cached;
 
-    // 2. Dedupe identical concurrent requests (same char from a compound + the char loop).
+
+
     const inflight = this._pending.get(value);
     if (inflight) return inflight;
 
+    const epoch = this._epoch;
     const promise = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), KANJI_TIMEOUT_MS);
@@ -134,7 +156,7 @@ class DictionaryService {
             radical: data.radical?.character || null,
             frequency: null
           };
-          this._cacheResult(value, result);
+          if (!this._staleEpoch(epoch)) this._cacheResult(value, result);
           return result;
         }
       } catch {} finally {
@@ -149,9 +171,12 @@ class DictionaryService {
     if (!word || word.length < 2) return this.lookup(word);
     if (!KANJI_CHARACTER_PATTERN.test(word[0])) return null;
 
-    // Compound cache keys are prefixed so a compound never collides with a
-    // single-kanji entry. `null` (confirmed non-word) is cached too, to avoid
-    // re-querying Jisho for the same non-word during segmentation.
+
+
+
+
+
+
     const cacheKey = `#${word}`;
     if (this._cache.has(cacheKey)) {
       const hit = this._cache.get(cacheKey);
@@ -161,6 +186,7 @@ class DictionaryService {
     const inflight = this._pending.get(cacheKey);
     if (inflight) return inflight;
 
+    const epoch = this._epoch;
     const promise = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), COMPOUND_TIMEOUT_MS);
@@ -186,39 +212,50 @@ class DictionaryService {
               meanings: meanings.slice(0, 5),
               onyomi: [], kunyomi: []
             };
-            this._cacheResult(cacheKey, result);
+            if (!this._staleEpoch(epoch)) this._cacheResult(cacheKey, result);
             return result;
           }
-          // Confirmed reachable-but-not-a-word: remember in-memory only (not
-          // persisted — avoids disk bloat and permanent staleness if Jisho later
-          // adds the word) so segmentation doesn't re-query it this session.
+
+
+
+
+
+
           this._cache.set(cacheKey, { __notWord: true });
         }
       } catch {} finally {
         clearTimeout(timeout);
       }
 
-      // Network failure or not a real compound → return null so the caller can
-      // try segmentation or individual chars. (Transient failures are not cached.)
+
+
+
+
+
+
+
+
+      if (!this._staleEpoch(epoch)) this._cache.set(cacheKey, { __notWord: true });
       return null;
     })();
     return this._track(cacheKey, promise);
   }
 
-  /**
-   * Greedily split a kanji run into real compounds + leftover chars.
-   * e.g. "毎日日本語" -> ["毎日", "日本語"] (both real words), then callers
-   * fall back to individual chars for anything else.
-   */
+
   async segmentSequence(run) {
     if (!run || run.length < 2) return [run].filter(Boolean);
     const pieces = [];
     let i = 0;
+    let budget = SEGMENT_LOOKUP_BUDGET;
     const n = run.length;
     while (i < n) {
-      // Longest-first: try to match a real compound ending at each index.
+
+
       let matched = null;
       for (let end = Math.min(n, i + 4); end > i; end--) {
+        if (budget <= 0) break;
+
+        budget -= 1;
         const candidate = run.slice(i, end);
         if (await this.lookupCompound(candidate)) {
           matched = { candidate, end };
@@ -229,7 +266,8 @@ class DictionaryService {
         pieces.push(matched.candidate);
         i = matched.end;
       } else {
-        // No compound from here — advance one char (it gets its own entry later).
+
+
         i += 1;
       }
     }

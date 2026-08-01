@@ -20,11 +20,13 @@ async function init() {
     if (sizes) {
       $('#size-app').textContent = formatBytes(sizes.app);
       $('#size-settings').textContent = formatBytes(sizes.userData);
-      // OCR total = python install + downloaded model cache.
+
+
       $('#size-ocr').textContent = formatBytes((sizes.python || 0) + (sizes.modelCache || 0));
     }
   } catch (_) {
-    // Sizes are best-effort; the uninstaller still works without them.
+
+
   }
 }
 
@@ -44,7 +46,8 @@ $('#btn-uninstall').addEventListener('click', async () => {
   $('#btn-uninstall').disabled = true;
   $('#btn-cancel').disabled = true;
 
-  // Switch to the status view.
+
+
   $('#main').classList.add('hidden');
   $('#status-view').classList.remove('hidden');
   $('#status-text').textContent =
@@ -58,7 +61,8 @@ $('#btn-uninstall').addEventListener('click', async () => {
     return;
   }
 
-  // Cleanup runs after this process exits; the window closes momentarily.
+
+
   $('#status-text').textContent = 'Finishing up…\n\nHiraganized will now close.';
 }, { once: false });
 

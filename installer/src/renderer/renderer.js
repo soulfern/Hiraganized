@@ -3,12 +3,8 @@ const $$ = (s) => document.querySelectorAll(s);
 
 let cleanup;
 
-// ── Title bar ──────────────────────────────────────────────────────────────────
-
-$('#btnMin').onclick = () => {};
+$('#btnMin').onclick = () => { if (window.installer.minimize) window.installer.minimize(); };
 $('#btnClose').onclick = () => window.close();
-
-// ── Page switching ─────────────────────────────────────────────────────────────
 
 function showPage(id) {
   $$('.page').forEach((p) => p.classList.remove('active'));
@@ -22,16 +18,12 @@ function setStep(idx, state) {
   if (state === 'done') el.classList.add('done');
 }
 
-// ── Welcome ────────────────────────────────────────────────────────────────────
-
 $('#btnBrowse').onclick = async () => {
   const dir = await window.installer.selectDir();
   if (dir) $('#installDir').value = dir;
 };
 
 $('#btnInstall').onclick = () => startInstall();
-
-// ── Install ────────────────────────────────────────────────────────────────────
 
 const STEPS = [
   { label: 'Copying files', id: 1 },
@@ -118,13 +110,9 @@ async function startInstall() {
   window._installDir = result.installDir;
 }
 
-// ── Cancel ─────────────────────────────────────────────────────────────────────
-
 $('#btnCancel').onclick = async () => {
   await window.installer.cancel();
 };
-
-// ── Finish ─────────────────────────────────────────────────────────────────────
 
 $('#btnFinish').onclick = async () => {
   const launch = $('#chkLaunch').checked;

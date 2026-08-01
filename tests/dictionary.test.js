@@ -121,3 +121,99 @@ test('failed lookups are not cached', async () => {
     global.fetch = originalFetch;
   }
 });
+
+test('clearCache deletes the cache file and forces a refetch', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const originalFetch = global.fetch;
+  const cachePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hira-dict-')), 'cache.json');
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ kanji: '雨', meanings: ['rain'], on_readings: ['ウ'], kun_readings: ['あめ'] }) };
+  };
+  try {
+    const service = new DictionaryService(cachePath).load();
+    await service.lookup('雨');
+    service.flush();
+    assert.ok(fs.existsSync(cachePath));
+
+    service.clearCache();
+    assert.ok(!fs.existsSync(cachePath), 'cache file should be deleted');
+
+    calls = 0;
+    const again = await service.lookup('雨');
+    assert.equal(again.found, true);
+    assert.equal(calls, 1, 'cleared cache should refetch from the network');
+  } finally {
+    global.fetch = originalFetch;
+    try { fs.rmSync(path.dirname(cachePath), { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('clearCache is safe with no cache path', () => {
+  const service = new DictionaryService();
+  service.clearCache();
+
+});
+
+test('clearCache discards results of lookups started before the clear', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const originalFetch = global.fetch;
+  const cachePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hira-dict-')), 'cache.json');
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  global.fetch = async () => {
+    await gate;
+
+    return { ok: true, json: async () => ({ kanji: '空', meanings: ['sky'], on_readings: ['クウ'], kun_readings: ['そら'] }) };
+  };
+  try {
+    const service = new DictionaryService(cachePath).load();
+    const inflight = service.lookup('空');
+    service.clearCache();
+
+    release();
+    const result = await inflight;
+    assert.equal(result.found, true);
+    service.flush();
+    assert.ok(!fs.existsSync(cachePath), 'post-clear in-flight result must not repopulate the cache file');
+    assert.equal(service._cache.has('空'), false);
+  } finally {
+    global.fetch = originalFetch;
+    try { fs.rmSync(path.dirname(cachePath), { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('network failure on compound lookup is cached for the session (no re-fetch)', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return { ok: false, status: 0 }; };
+  try {
+    const service = new DictionaryService();
+    const first = await service.lookupCompound('毎日');
+    const second = await service.lookupCompound('毎日');
+    assert.equal(first, null);
+    assert.equal(second, null);
+    assert.equal(calls, 1, 'a network failure must be remembered for the session');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('segmentSequence stops probing Jisho once the budget is exhausted', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => { calls += 1; return { ok: false, status: 0 }; };
+  try {
+    const service = new DictionaryService();
+    const pieces = await service.segmentSequence('漢字検定試験勉強');
+    assert.ok(pieces.length >= 0);
+    assert.ok(calls <= 12, `segmentation made ${calls} lookups, over the 12-budget cap`);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

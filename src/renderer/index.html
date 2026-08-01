@@ -1,16 +1,18 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
   <title>Hiraganized</title>
+  <link rel="stylesheet" href="themes.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="window-shell">
     <header class="titlebar">
       <span class="brand-name">Hiraganized</span>
+      <span class="version-tag" id="version-tag"></span>
       <div class="window-actions">
         <button class="icon-button" id="minimize-window" aria-label="Minimize" title="Minimize">&mdash;</button>
         <button class="icon-button close-button" id="close-window" aria-label="Close to tray" title="Close">&times;</button>
@@ -19,6 +21,7 @@
 
     <main class="content" id="main-content">
       <div class="settings-view" id="settings-view">
+        <div class="setting-section-title">General</div>
         <div class="settings-card">
           <div class="setting-row">
             <span class="setting-label">Capture hotkey</span>
@@ -39,7 +42,10 @@
               <span class="slider"></span>
             </label>
           </div>
-          <div class="setting-divider"></div>
+        </div>
+
+        <div class="setting-section-title">Popup</div>
+        <div class="settings-card">
           <div class="setting-row">
             <span class="setting-label">Show compound characters</span>
             <label class="toggle">
@@ -47,7 +53,85 @@
               <span class="slider"></span>
             </label>
           </div>
+          <div class="setting-divider"></div>
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span class="setting-label">Popup opacity</span>
+              <span class="slider-value" id="value-opacity">100%</span>
+            </div>
+            <input type="range" id="slider-opacity" min="30" max="100" step="1" data-setting="notifications.opacity" />
+          </div>
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span class="setting-label">Font scale</span>
+              <span class="slider-value" id="value-fontScale">1.0&times;</span>
+            </div>
+            <input type="range" id="slider-fontScale" min="0.7" max="1.5" step="0.05" data-setting="appearance.fontScale" />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span class="setting-label">Auto-dismiss after</span>
+              <span class="slider-value" id="value-autoDismissSeconds">Off</span>
+            </div>
+            <input type="range" id="slider-autoDismissSeconds" min="0" max="60" step="1" data-setting="general.autoDismissSeconds" />
+          </div>
         </div>
+
+        <div class="setting-section-title">Appearance</div>
+        <div class="settings-card">
+          <div class="setting-row">
+            <span class="setting-label">Color theme</span>
+          </div>
+          <div class="theme-grid" id="theme-grid"></div>
+        </div>
+
+        <div class="setting-section-title">Capture</div>
+        <div class="settings-card">
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span class="setting-label">Max kanji per capture</span>
+              <span class="slider-value" id="value-maxKanjiLimit">20</span>
+            </div>
+            <input type="range" id="slider-maxKanjiLimit" min="1" max="30" step="1" data-setting="general.maxKanjiLimit" />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="slider-row">
+            <div class="slider-label-row">
+              <span class="setting-label">Capture delay</span>
+              <span class="slider-value" id="value-captureDelayMs">100 ms</span>
+            </div>
+            <input type="range" id="slider-captureDelayMs" min="0" max="1000" step="25" data-setting="general.captureDelayMs" />
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <span class="setting-label">Show magnifier</span>
+            <label class="toggle">
+              <input type="checkbox" id="set-magnifier" data-setting="general.magnifier" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-section-title">Dictionary</div>
+        <div class="settings-card">
+          <p class="cache-clear-note">Clears the saved kanji lookup cache. Lookups will re-fetch from the network on next use.</p>
+          <button class="danger-btn" id="clear-cache-btn">Clear dictionary cache</button>
+        </div>
+
+        <div class="setting-section-title">Debug</div>
+        <div class="settings-card">
+          <div class="setting-row">
+            <span class="setting-label">Show logs</span>
+            <label class="toggle">
+              <input type="checkbox" id="set-showLogs" data-setting="debug.showLogs" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <button class="reset-btn" id="reset-settings-btn">Reset all settings to default</button>
+
         <div class="brand-footer">
           Made with <span class="heart">&hearts;</span> by <span class="profile-link" id="profile-link">soulfern</span>
         </div>

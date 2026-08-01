@@ -45,7 +45,6 @@ function escapeXml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// IPC: select install directory
 ipcMain.handle('install:select-dir', async () => {
   const def = 'C:\\Program Files\\Hiraganized';
   const result = await dialog.showOpenDialog(setupWindow, {
@@ -56,7 +55,6 @@ ipcMain.handle('install:select-dir', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-// IPC: run installation
 ipcMain.handle('install:run', async (_event, installDir) => {
   cancelled = false;
   const win = setupWindow;
@@ -73,15 +71,22 @@ ipcMain.handle('install:run', async (_event, installDir) => {
   try {
     process.noAsar = true;
 
-    // Step 0 - Copy app files
     log('=== Install starting ===');
     log('installDir:', installDir);
+
+    if (!isSafeInstallDir(installDir)) {
+      throw new Error(`Unsafe install directory: ${installDir}. Choose an empty folder or a previous Hiraganized install.`);
+    }
+
     progress(0, 0, 'Copying application files', 'Preparing files');
 
     const sourceDir = path.dirname(app.getPath('exe'));
     log('sourceDir:', sourceDir);
 
     if (fs.existsSync(installDir)) {
+      if (!isHiraganizedInstall(installDir)) {
+        throw new Error(`Directory ${installDir} is not empty and does not look like a previous Hiraganized install. Choose a different folder.`);
+      }
       log('Target exists - removing old install');
       try {
         fs.rmSync(installDir, { recursive: true, force: true });
@@ -98,8 +103,7 @@ ipcMain.handle('install:run', async (_event, installDir) => {
     for (let i = 0; i < entries.length; i++) {
       if (cancelled) return { cancelled: true };
       const name = entries[i];
-      if (name === 'Hiraganized Installer.exe') {
-        // Skip - copy main app's exe below
+      if (name === 'Hiraganized Installer.exe' || name === 'bundled-app') {
       } else {
         copyRecursiveSync(path.join(sourceDir, name), path.join(installDir, name));
       }
@@ -113,7 +117,6 @@ ipcMain.handle('install:run', async (_event, installDir) => {
     fs.copyFileSync(bundledExe, targetExe);
     log('Copied bundled exe');
 
-    // Copy bundled app asar
     const bundledAsar = path.join(process.resourcesPath, 'bundled-app', 'app.asar');
     const targetAsar = path.join(installDir, 'resources', 'app.asar');
     if (!fs.existsSync(bundledAsar)) throw new Error('Bundled app.asar is missing');
@@ -125,13 +128,10 @@ ipcMain.handle('install:run', async (_event, installDir) => {
 
     progress(0, 100, 'Application files copied', '');
 
-    // Step 1 - Python
     const pythonExe = await ensurePython(progress);
 
-    // Step 2 - manga-ocr
     await installMangaOcr(pythonExe, progress);
 
-    // Step 3 - Shortcuts + uninstall registration (so it shows in "Installed apps")
     createShortcuts(installDir, progress);
     registerUninstall(installDir, progress);
 
@@ -139,7 +139,7 @@ ipcMain.handle('install:run', async (_event, installDir) => {
     return { success: true, installDir };
   } catch (error) {
     log('Install failed:', error.message);
-    return { success: false, error: error.message, cancelled: false };
+    return { success: false, error: error.message, cancelled: cancelled };
   } finally {
     activeProcess = null;
     activeRequest = null;
@@ -147,7 +147,6 @@ ipcMain.handle('install:run', async (_event, installDir) => {
   }
 });
 
-// IPC: cancel
 ipcMain.handle('install:cancel', () => {
   cancelled = true;
   if (activeRequest) activeRequest.destroy(new Error('Installation cancelled'));
@@ -158,7 +157,8 @@ ipcMain.handle('install:cancel', () => {
   return { ok: true };
 });
 
-// IPC: launch app
+ipcMain.handle('install:minimize', () => { setupWindow?.minimize(); return { ok: true }; });
+
 ipcMain.handle('install:launch-app', (_event, installDir) => {
   const exe = path.join(installDir, 'Hiraganized.exe');
   if (fs.existsSync(exe)) {
@@ -167,7 +167,6 @@ ipcMain.handle('install:launch-app', (_event, installDir) => {
   app.quit();
 });
 
-// --- File helpers ---
 
 function copyFileSync(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -211,9 +210,15 @@ function downloadFile(url, dest, onProgress) {
     const file = fs.createWriteStream(dest);
     const request = https.get(url, { timeout: 60000 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const next = new URL(res.headers.location, url);
+        if (next.hostname !== 'www.python.org') {
+          file.close();
+          fs.unlinkSync(dest);
+          return reject(new Error(`Blocked redirect to ${next.hostname}`));
+        }
         file.close();
         fs.unlinkSync(dest);
-        return downloadFile(res.headers.location, dest, onProgress).then(resolve).catch(reject);
+        return downloadFile(next.toString(), dest, onProgress).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         file.close();
@@ -238,6 +243,36 @@ function downloadFile(url, dest, onProgress) {
       reject(err);
     });
   });
+}
+
+/**
+ * Install target sanity: must be absolute, not a drive root, and not a
+ * system-owned directory (Windows dir, Program Files itself). Prevents the
+ * elevated rmSync below from ever targeting something like C:\ or C:\Windows.
+ */
+function isSafeInstallDir(dir) {
+  if (typeof dir !== 'string' || dir.trim().length < 3) return false;
+  if (!/^[A-Za-z]:[\\/]/.test(dir)) return false;
+  const p = path.resolve(dir);
+  if (/^[A-Za-z]:\\$/.test(p)) return false;
+  const normalized = p.toLowerCase();
+  const winDir = (process.env.WINDIR || 'C:\\Windows').toLowerCase();
+  if (normalized === winDir || normalized.startsWith(winDir + path.sep)) return false;
+  const pf = (process.env.ProgramFiles || 'C:\\Program Files').toLowerCase();
+  if (normalized === pf) return false;
+  return true;
+}
+
+/** True when the directory holds an existing Hiraganized install. */
+function isHiraganizedInstall(dir) {
+  try {
+    const entries = fs.readdirSync(dir);
+    if (entries.length === 0) return true;
+    return fs.existsSync(path.join(dir, 'Hiraganized.exe')) ||
+      fs.existsSync(path.join(dir, 'resources', 'app.asar'));
+  } catch {
+    return false;
+  }
 }
 
 async function ensurePython(progress) {
@@ -325,7 +360,6 @@ async function installMangaOcr(pythonExe, progress) {
       const text = data.toString();
       output = (output + text).slice(-12000);
       log(text.trim());
-      progress(2, -1, 'Installing manga-ocr', text.substring(0, 100));
     });
 
     proc.on('close', (code) => {
@@ -384,8 +418,7 @@ function registerUninstall(installDir, progress) {
   const exe = path.join(installDir, 'Hiraganized.exe');
   const iconPath = path.join(installDir, 'resources', 'app.asar');
   const keyPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Hiraganized';
-  const version = '1.1.0';
-  // Estimate size in KB (app dir); best-effort, non-fatal if it fails.
+  const version = app.getVersion();
   const ps1 = path.join(app.getPath('temp'), 'hiraganized-reguninstall.ps1');
   const code = `
     $ErrorActionPreference = 'Stop'

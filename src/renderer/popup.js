@@ -1,9 +1,19 @@
-﻿const appApi = window.hiraganized;
+const appApi = window.hiraganized;
 let allEntries = [];
 let currentIndex = 0;
+let fontScale = 1;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+function applyAppearance(state) {
+  const theme = state.settings?.appearance?.theme || 'midnight';
+  document.documentElement.dataset.theme = theme;
+  fontScale = Number(state.settings?.appearance?.fontScale) || 1;
+
+
+  document.documentElement.style.fontSize = `${13 * fontScale}px`;
+}
 
 function render(payload) {
   allEntries = payload.entries || [];
@@ -11,6 +21,19 @@ function render(payload) {
   document.body.classList.remove('closing');
   renderTabs();
   renderEntry(0);
+  fitToContent();
+}
+
+function fitToContent() {
+
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const card = document.querySelector('.popup-card');
+      const height = Math.ceil(card.getBoundingClientRect().height);
+      appApi.resizePopup(height);
+    });
+  });
 }
 
 function renderTabs() {
@@ -19,7 +42,7 @@ function renderTabs() {
   allEntries.forEach((entry, i) => {
     const tab = document.createElement('button');
     tab.className = 'tab-item' + (i === currentIndex ? ' active' : '');
-    tab.textContent = entry.character || '\uFFFD';
+    tab.textContent = entry.character || '�';
     tab.addEventListener('click', () => selectTab(i));
     bar.appendChild(tab);
   });
@@ -30,6 +53,8 @@ function selectTab(index) {
   currentIndex = index;
   $$('.tab-item').forEach((t, i) => t.classList.toggle('active', i === index));
   renderEntry(index);
+  fitToContent();
+
 }
 
 function renderEntry(index) {
@@ -40,47 +65,55 @@ function renderEntry(index) {
   charEl.textContent = entry.character || '';
 
   const len = (entry.character || '').length;
-  if (len <= 1) charEl.style.fontSize = '32px';
-  else if (len <= 2) charEl.style.fontSize = '28px';
-  else if (len <= 3) charEl.style.fontSize = '24px';
-  else charEl.style.fontSize = '20px';
+  charEl.style.fontSize = len <= 1 ? '2.6rem' : len <= 2 ? '2.2rem' : len <= 3 ? '1.9rem' : '1.55rem';
 
-  let readings;
+  const readingEl = $('#popup-reading');
+  const kunEl = $('#popup-reading-kun');
+
   if (entry.isCompound) {
-    readings = (entry.readings || []).join(' \u00b7 ');
-  } else {
-    readings = [...(entry.onyomi || []), ...(entry.kunyomi || [])].join(' \u00b7 ');
-  }
-  if (!readings && entry.readings) readings = entry.readings.join(' \u00b7 ');
-  $('#popup-reading').textContent = readings || '\u2014';
 
-  const meanings = (entry.meanings || []).slice(0, 4).join(' \u00b7 ');
-  $('#popup-meaning').textContent = meanings || '\u2014';
+
+    readingEl.textContent = (entry.readings || []).join(' · ');
+    kunEl.textContent = '';
+  } else {
+    const onyomi = (entry.onyomi || []).join(' · ');
+    const kunyomi = (entry.kunyomi || []).join(' · ');
+    readingEl.textContent = onyomi ? `On: ${onyomi}` : '—';
+    kunEl.textContent = kunyomi ? `Kun: ${kunyomi}` : '';
+  }
+
+  const meanings = (entry.meanings || []).slice(0, 4).join(' · ');
+  $('#popup-meaning').textContent = meanings || '—';
 
   const jlpt = entry.jlpt ? 'JLPT ' + entry.jlpt : '';
   $('#popup-jlpt').textContent = jlpt;
 }
 
-appApi.onPopupPayload(render);
-appApi.onOcrResult((text) => {
-  document.body.classList.remove('closing');
-  $('#popup-char').textContent = '';
-  const re = $('#popup-reading');
-  re.textContent = text;
-  re.style.fontSize = text.length > 40 ? '11px' : '13px';
-  re.style.fontWeight = '400';
-  $('#popup-jlpt').textContent = '';
-  $('#popup-meaning').textContent = '';
-  $('#tab-bar').innerHTML = '';
-});
-appApi.onPopupWarning((message) => {
+function resetPopupView() {
   document.body.classList.remove('closing');
   $('#tab-bar').innerHTML = '';
   $('#popup-reading').textContent = '';
+  $('#popup-reading-kun').textContent = '';
   $('#popup-meaning').textContent = '';
   $('#popup-jlpt').textContent = '';
+  $('#popup-char').textContent = '';
+  $('#popup-char').style.fontSize = '';
+  $('#popup-reading').style.fontSize = '';
+  $('#popup-reading').style.fontWeight = '';
+}
+
+appApi.onPopupPayload(render);
+appApi.onOcrResult((text) => {
+  resetPopupView();
+  const re = $('#popup-reading');
+  re.textContent = text;
+  re.style.fontSize = text.length > 40 ? '0.85rem' : '1rem';
+  re.style.fontWeight = '400';
+  fitToContent();
+});
+appApi.onPopupWarning((message) => {
+  resetPopupView();
   const pc = $('#popup-char');
-  pc.textContent = '';
   const lines = message.split('\n');
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;';
@@ -93,6 +126,8 @@ appApi.onPopupWarning((message) => {
     wrapper.appendChild(el);
   }
   pc.appendChild(wrapper);
+  fitToContent();
 });
+appApi.onState(applyAppearance);
 
 $('#popup-close').addEventListener('click', () => window.close());

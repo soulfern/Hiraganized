@@ -8,6 +8,9 @@ const { nativeImage } = require('electron');
 
 const PYTHON_VERSION = '3.12.9';
 const PYTHON_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-amd64.exe`;
+
+const PYTHON_MD5 = '1cfb1bbf96007b12b98db895dcd86487';
+const PYTHON_HOST = 'www.python.org';
 const PYTHON_INSTALL_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'Python', 'Python312');
 const PYTHON_EXE = path.join(PYTHON_INSTALL_DIR, 'python.exe');
 const OCR_LOG_PATH = path.join(os.tmpdir(), 'hiraganized-ocr.log');
@@ -68,8 +71,6 @@ function logOcr(message) {
   try { fs.appendFileSync(OCR_LOG_PATH, `[${new Date().toISOString()}] ${message}\n`, 'utf8'); } catch {}
 }
 
-// ── Status callbacks (wired to main window IPC in main.js) ──
-
 let onSetupStart = null;
 let onSetupProgress = null;
 let onSetupDone = null;
@@ -92,8 +93,6 @@ function closeSetupWin() {
 function updateSetup(step, subtitle, progress, detail) {
   onSetupProgress?.({ step, subtitle, progress, detail });
 }
-
-// ── Python detection + install ──
 
 function execFileAsync(exe, args, opts) {
   return new Promise((resolve, reject) => {
@@ -159,9 +158,18 @@ function downloadFile(url, dest, onProgress) {
     const file = fs.createWriteStream(dest);
     const request = https.get(url, { timeout: 60000 }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+
+
+        const next = new URL(res.headers.location, url);
+        if (next.hostname !== PYTHON_HOST) {
+          file.close();
+          try { fs.unlinkSync(dest); } catch {}
+          reject(new Error(`Blocked redirect to ${next.hostname}`));
+          return;
+        }
         file.close();
         try { fs.unlinkSync(dest); } catch {}
-        downloadFile(new URL(res.headers.location, url).toString(), dest, onProgress).then(resolve, reject);
+        downloadFile(next.toString(), dest, onProgress).then(resolve, reject);
         return;
       }
       if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -194,6 +202,14 @@ async function downloadAndInstallPython() {
     throw new Error(`Failed to download Python: ${err.message}`);
   }
 
+
+
+  const actual = crypto.createHash('md5').update(fs.readFileSync(installerPath)).digest('hex');
+  if (actual !== PYTHON_MD5) {
+    try { fs.unlinkSync(installerPath); } catch {}
+    throw new Error(`Python installer checksum mismatch (expected ${PYTHON_MD5}, got ${actual})`);
+  }
+
   updateSetup('Installing Python...', 'This may take a minute', null);
 
   await new Promise((resolve, reject) => {
@@ -221,7 +237,7 @@ async function installMangaOcr(pythonExe) {
 
   await new Promise((resolve, reject) => {
     const p = spawn(pythonExe, ['-m', 'pip', 'install', '--disable-pip-version-check', '--no-input', 'manga-ocr==0.1.16'], {
-      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
+      windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], timeout: 1800000
     });
     installProc = p;
     let output = '';
@@ -230,15 +246,12 @@ async function installMangaOcr(pythonExe) {
       const text = d.toString();
       output = (output + text).slice(-12000);
       logOcr(text.trim());
-      const last = text.trim().split('\n').pop() || '';
-      updateSetup('Installing manga-ocr...', 'Downloading packages...', null, last);
     });
     p.stderr.on('data', (d) => {
       const text = d.toString().trim();
       if (text) {
         output = (output + '\n' + text).slice(-12000);
         logOcr(text);
-        updateSetup('Installing manga-ocr...', 'Downloading packages...', null, text.split('\n').pop());
       }
     });
     p.on('error', reject);
@@ -256,7 +269,6 @@ async function installMangaOcr(pythonExe) {
   });
 }
 
-/** Abort any in-flight OCR setup (Python download/install, pip install). */
 function cancelSetup() {
   cancelled = true;
   if (pythonInstallerProc) {
@@ -268,13 +280,28 @@ function cancelSetup() {
     installProc = null;
   }
   if (proc && !ready) {
-    // Kill the OCR server if it's still starting (model download/load phase).
+
+
     try { proc.kill(); } catch {}
     proc = null;
   }
-  // Allow a later startOcr() to retry from scratch.
+
+
+
+
+
+
+  if (startupWaiter) {
+    const w = startupWaiter;
+    startupWaiter = null;
+    w.reject(new Error('OCR setup cancelled'));
+  }
+  closeSetupWin();
+
+
   startError = null;
   starting = false;
+  cancelled = false;
 }
 
 async function ensureSetup() {
@@ -292,8 +319,6 @@ async function ensureSetup() {
     throw err;
   }
 }
-
-// ── OCR Server ──
 
 function ensureScriptFile() {
   if (scriptPath) return scriptPath;
@@ -355,11 +380,7 @@ async function startOcr() {
       };
       proc.stderr.on('data', (d) => {
         const text = d.toString().trim();
-        if (text) {
-          logOcr(text);
-          const last = text.split('\n').pop().slice(0, 120);
-          updateSetup('Loading OCR model...', 'This may take a few minutes on first launch', null, last);
-        }
+        if (text) logOcr(text);
       });
     });
 
@@ -367,7 +388,7 @@ async function startOcr() {
     starting = false;
     closeSetupWin();
   } catch (err) {
-    startError = err;
+    if (!cancelled) startError = err;
     starting = false;
     closeSetupWin();
     if (proc) { try { proc.kill(); } catch {} proc = null; }
@@ -425,7 +446,14 @@ function stopOcr() {
 }
 
 async function recognizeImage(imagePath) {
-  if (!ready) await startOcr();
+  if (!ready) {
+
+
+
+
+    if (startError) throw new Error(startError.message);
+    await startOcr();
+  }
   if (!proc || !proc.stdin) throw new Error('OCR process not available');
   return new Promise((resolve, reject) => {
     if (pending) {

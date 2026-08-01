@@ -19,7 +19,7 @@ test('config store persists partial updates without dropping other preferences',
   store.save();
   const reloaded = new ConfigStore(store.filePath, cloneDefaults()).load();
   assert.equal(reloaded.shortcuts.triggerCapture, 'Ctrl+Alt+J');
-  assert.equal(reloaded.notifications.opacity, 96);
+  assert.equal(reloaded.notifications.opacity, 100);
 });
 
 test('config store merges saved sections with defaults', () => {

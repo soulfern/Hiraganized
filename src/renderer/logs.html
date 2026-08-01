@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>Hiraganized Logs</title>
+  <link rel="stylesheet" href="themes.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .logs-shell { height: 100vh; display: flex; flex-direction: column; border: 1px solid var(--window-edge); }
+    .logs-titlebar { display: flex; align-items: center; justify-content: center; height: 38px; flex-shrink: 0; position: relative; -webkit-app-region: drag; border-bottom: 1px solid var(--window-edge); background: var(--bg-elevated); }
+    .logs-brand { font-weight: 400; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-tertiary); }
+    .logs-actions { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px; -webkit-app-region: no-drag; }
+    .logs-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 14px; font-family: 'Consolas', 'Cascadia Mono', monospace; font-size: 11px; line-height: 1.55; }
+    .log-line { white-space: pre-wrap; word-break: break-all; color: var(--text-primary); }
+    .log-line .ts { color: var(--text-tertiary); }
+    .log-line .lvl-INFO { color: #6aa8ff; }
+    .log-line .lvl-WARN { color: #e0b84c; }
+    .log-line .lvl-ERROR { color: #e05d5d; }
+    .logs-body::-webkit-scrollbar { width: 4px; }
+    .logs-body::-webkit-scrollbar-thumb { background: var(--glass-card-border-strong); border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <div class="logs-shell">
+    <header class="logs-titlebar">
+      <span class="logs-brand">Hiraganized Logs</span>
+      <div class="logs-actions">
+        <button class="icon-button close-button" id="logs-close" aria-label="Close" title="Close">&times;</button>
+      </div>
+    </header>
+    <div class="logs-body" id="logs-body"></div>
+  </div>
+  <script src="logs.js"></script>
+</body>
+</html>

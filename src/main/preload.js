@@ -10,9 +10,17 @@ contextBridge.exposeInMainWorld('hiraganized', {
   onOcrSetupProgress: (callback) => ipcRenderer.on('ocr:setup-progress', (_event, data) => callback(data)),
   onOcrSetupDone: (callback) => ipcRenderer.on('ocr:setup-done', () => callback()),
   cancelOcrSetup: () => ipcRenderer.invoke('ocr:cancel'),
+  getVersion: () => ipcRenderer.invoke('app:get-version'),
+  clearDictionaryCache: () => ipcRenderer.invoke('dictionary:clear-cache'),
+  resetSettings: () => ipcRenderer.invoke('app:reset-settings'),
   onOcrResult: (callback) => ipcRenderer.on('popup:ocr-result', (_event, text) => callback(text)),
   onPopupPayload: (callback) => ipcRenderer.on('popup:payload', (_event, data) => callback(data)),
   onPopupWarning: (callback) => ipcRenderer.on('popup:warning', (_event, message) => callback(message)),
+  resizePopup: (height) => ipcRenderer.send('popup:resize', height),
   commitSelection: (bounds) => ipcRenderer.send('selection:commit', bounds),
-  cancelSelection: () => ipcRenderer.send('selection:cancel')
+  cancelSelection: () => ipcRenderer.send('selection:cancel'),
+  onOverlayImage: (callback) => ipcRenderer.on('overlay:image', (_event, frames) => callback(frames)),
+  onOverlayReset: (callback) => ipcRenderer.on('overlay:reset', () => callback()),
+  onLogLine: (callback) => ipcRenderer.on('logs:line', (_event, line) => callback(line)),
+  closeWindow: () => ipcRenderer.send('app:close-logs')
 });

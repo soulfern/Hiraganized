@@ -8,9 +8,17 @@ class Logger {
     this.filePath = path.join(logDirectory, 'hiraganized.log');
     this.queue = [];
     this.flushTimer = null;
+    this.listeners = new Set();
+
   }
 
   setEnabled(enabled) { this.enabled = Boolean(enabled); }
+
+
+  onLine(callback) {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
 
   write(level, message, details) {
     if (!this.enabled) return;
@@ -18,6 +26,9 @@ class Logger {
     const suffix = details ? ` ${JSON.stringify(details)}` : '';
     const line = `${timestamp} [${level}] ${message}${suffix}`;
     this.queue.push(line);
+    for (const cb of this.listeners) {
+      try { cb(line); } catch {}
+    }
     if (!this.flushTimer) this.flushTimer = setTimeout(() => this.flush(), 1000);
   }
 
@@ -33,6 +44,19 @@ class Logger {
       fs.mkdirSync(this.logDirectory, { recursive: true });
       fs.appendFileSync(this.filePath, lines, 'utf8');
     } catch {}
+  }
+
+
+  recent(n) {
+    const lines = [];
+    try {
+      if (fs.existsSync(this.filePath)) {
+        const disk = fs.readFileSync(this.filePath, 'utf8').split('\n');
+        for (const l of disk) if (l) lines.push(l);
+      }
+    } catch {}
+    for (const l of this.queue) lines.push(l);
+    return lines.slice(-n);
   }
 
   close() { if (this.flushTimer) clearTimeout(this.flushTimer); this.flush(); }

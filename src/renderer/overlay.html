@@ -1,11 +1,20 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;">
 <title>Select region</title>
+<link rel="stylesheet" href="themes.css" />
 <style>
+@font-face {
+  font-family: 'Lexend';
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('../../assets/fonts/Lexend-400.woff2') format('woff2-variations');
+  src: url('../../assets/fonts/Lexend-400.woff2') format('woff2');
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   width: 100%; height: 100%;
@@ -13,7 +22,7 @@ html, body {
   cursor: crosshair;
   user-select: none;
   -webkit-app-region: no-drag;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Lexend', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 .overlay {
   position: absolute;
@@ -22,10 +31,21 @@ html, body {
 }
 .selection-box {
   position: absolute;
-  border: 1.5px solid rgba(255,255,255,0.5);
+  border: 1.5px solid var(--accent);
   background: rgba(255,255,255,0.02);
   box-shadow: 0 0 0 9999px rgba(0,0,0,0.25), 0 0 24px rgba(255,255,255,0.04);
   pointer-events: none;
+}
+#lens {
+  position: fixed;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4), 0 4px 18px rgba(0,0,0,0.45);
+  pointer-events: none;
+  display: none;
+  z-index: 10;
 }
 .info {
   position: fixed;
@@ -39,7 +59,7 @@ html, body {
   padding: 8px 20px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.05);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Lexend', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 12px;
   font-weight: 300;
   letter-spacing: 0.2px;
@@ -51,6 +71,7 @@ html, body {
 <body>
 <div class="overlay" id="overlay"></div>
 <div class="selection-box" id="selectionBox" style="display:none"></div>
+<canvas id="lens" width="150" height="150"></canvas>
 <div class="info" id="info">Drag to select a region &bull; Esc to cancel</div>
 <script src="overlay.js"></script>
 </body>

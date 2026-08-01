@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:;" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -40,7 +41,7 @@
       flex-direction: column;
     }
 
-    /* Titlebar */
+
     .titlebar {
       display: flex;
       align-items: center;
@@ -85,7 +86,7 @@
       padding: 0 36px;
     }
 
-    /* Timeline */
+
     .timeline {
       display: flex;
       padding: 22px 24px 18px;
@@ -154,7 +155,7 @@
       padding: 18px 20px;
     }
 
-    /* Welcome */
+
     .dir-picker {
       display: flex;
       gap: 10px;
@@ -218,7 +219,7 @@
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-primary:disabled { opacity: 0.35; cursor: default; box-shadow: none; }
 
-    /* Progress */
+
     .progress-section {
       flex: 1;
       display: flex;
@@ -272,7 +273,7 @@
       100% { transform: translateX(320%); }
     }
 
-    /* Done */
+
     .done-wrap {
       flex: 1;
       display: flex;

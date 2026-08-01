@@ -4,10 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <link rel="stylesheet" href="themes.css" />
   <link rel="stylesheet" href="styles.css" />
   <style>
     html,body.popup-body{background:transparent!important}
-    .popup-scroll-wrap { max-height: 360px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--glass-card-border-strong) transparent; padding-right: 2px; }
+    .popup-card { display: flex; flex-direction: column; }
+    .popup-scroll-wrap { flex: 0 0 auto; overflow: visible; }
     .popup-scroll-wrap::-webkit-scrollbar { width: 4px; }
     .popup-scroll-wrap::-webkit-scrollbar-track { background: transparent; }
     .popup-scroll-wrap::-webkit-scrollbar-thumb { background: var(--glass-card-border-strong); border-radius: 2px; }
@@ -22,6 +24,7 @@
     <div class="popup-scroll-wrap">
       <div class="popup-char" id="popup-char"></div>
       <div class="popup-reading" id="popup-reading"></div>
+      <div class="popup-reading popup-reading-kun" id="popup-reading-kun"></div>
       <div class="popup-meaning" id="popup-meaning"></div>
       <div class="popup-jlpt" id="popup-jlpt"></div>
     </div>
