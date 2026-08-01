@@ -5,7 +5,9 @@
 # ⛩️ Hiraganized — Instant Kanji Context
 [![GitHub stars](https://img.shields.io/github/stars/soulfern/Hiraganized?style=social)](https://github.com/soulfern/Hiraganized/stargazers) 
 
-[![Follow soulfern on GitHub](https://img.shields.io/github/followers/soulfern?style=for-the-badge&logo=github&logoColor=white&label=Follow%20soulfern%20on%20GitHub&color=181717)](https://github.com/soulfern)
+![Version](https://img.shields.io/github/v/release/soulfern/Hiraganized?style=for-the-badge)
+![License](https://img.shields.io/github/license/soulfern/Hiraganized?style=for-the-badge)
+![GitHub Repo stars](https://img.shields.io/github/stars/soulfern/Hiraganized?style=for-the-badge&color=yellow)
 
 </div align="center">
 
