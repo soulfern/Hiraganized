@@ -340,10 +340,10 @@ function createOverlayWindow() {
     hasShadow: false,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload-minimal.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -418,10 +418,10 @@ function getPopupWindow(bounds, { width = POPUP_WIDTH, height = POPUP_HEIGHT } =
     show: false,
     hasShadow: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload-minimal.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -670,10 +670,10 @@ function createLogsWindow() {
     frame: false,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload-minimal.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
   logsWindow.setMenuBarVisibility(false);

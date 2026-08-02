@@ -9,7 +9,7 @@ const { nativeImage } = require('electron');
 const PYTHON_VERSION = '3.12.9';
 const PYTHON_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-amd64.exe`;
 
-const PYTHON_MD5 = '1cfb1bbf96007b12b98db895dcd86487';
+const PYTHON_SHA256 = '2A52993092A19CFDFFE126E2EEAC46A4265E25705614546604AD44988E040C0F';
 const PYTHON_HOST = 'www.python.org';
 const PYTHON_INSTALL_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'Programs', 'Python', 'Python312');
 const PYTHON_EXE = path.join(PYTHON_INSTALL_DIR, 'python.exe');
@@ -59,7 +59,7 @@ let proc = null;
 let ready = false;
 let pending = null;
 let stdoutBuf = '';
-let scriptPath = null;
+const scriptPaths = [];
 let starting = false;
 let startError = null;
 let cancelled = false;
@@ -103,41 +103,52 @@ function execFileAsync(exe, args, opts) {
   });
 }
 
-async function checkPythonExists() {
-  const candidates = [];
-  if (fs.existsSync(PYTHON_EXE)) candidates.push(PYTHON_EXE);
+async function probePython(candidate) {
+  if (!fs.existsSync(candidate)) return null;
+  try {
+    const details = (await execFileAsync(candidate, ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}"); import pip; print(pip.__version__)'], {
+      timeout: 10000, windowsHide: true, encoding: 'utf-8'
+    })).trim();
+    if (!details.startsWith('3.12\n') && !details.startsWith('3.12\r\n')) {
+      logOcr(`Rejected unsupported Python: ${candidate} (${details.split(/\r?\n/)[0] || 'unknown'})`);
+      return null;
+    }
+    logOcr(`Using Python: ${candidate} (${details.replace(/\r?\n/g, ', pip ')})`);
+    return candidate;
+  } catch (err) {
+    logOcr(`Rejected Python without working pip: ${candidate} (${err.message})`);
+  }
+  return null;
+}
 
+async function checkPythonExists() {
+  // Prefer the Python install managed by the app itself; only fall back to the
+  // bare `py`/`python` launchers on PATH when that known path is unavailable.
+  if (fs.existsSync(PYTHON_EXE)) {
+    const managed = await probePython(PYTHON_EXE);
+    if (managed) return managed;
+  }
+
+  logOcr(`WARN: App Python not found at ${PYTHON_EXE}; falling back to py/python on PATH`);
+
+  const candidates = [];
   try {
     const py312 = (await execFileAsync('py', ['-3.12', '-c', 'import sys; print(sys.executable)'], {
       timeout: 5000, windowsHide: true, encoding: 'utf-8'
     })).trim();
-    if (py312) candidates.push(py312);
+    if (py312 && !candidates.includes(py312)) candidates.push(py312);
   } catch {}
 
-  for (const exe of ['python']) {
-    try {
-      const r = (await execFileAsync(exe, ['-c', 'import sys; print(sys.executable)'], {
-        timeout: 5000, windowsHide: true, encoding: 'utf-8'
-      })).trim();
-      if (r) candidates.push(r);
-    } catch {}
-  }
+  try {
+    const bare = (await execFileAsync('python', ['-c', 'import sys; print(sys.executable)'], {
+      timeout: 5000, windowsHide: true, encoding: 'utf-8'
+    })).trim();
+    if (bare && !candidates.includes(bare)) candidates.push(bare);
+  } catch {}
 
-  for (const candidate of [...new Set(candidates)]) {
-    if (!fs.existsSync(candidate)) continue;
-    try {
-      const details = (await execFileAsync(candidate, ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}"); import pip; print(pip.__version__)'], {
-        timeout: 10000, windowsHide: true, encoding: 'utf-8'
-      })).trim();
-      if (!details.startsWith('3.12\n') && !details.startsWith('3.12\r\n')) {
-        logOcr(`Rejected unsupported Python: ${candidate} (${details.split(/\r?\n/)[0] || 'unknown'})`);
-        continue;
-      }
-      logOcr(`Using Python: ${candidate} (${details.replace(/\r?\n/g, ', pip ')})`);
-      return candidate;
-    } catch (err) {
-      logOcr(`Rejected Python without working pip: ${candidate} (${err.message})`);
-    }
+  for (const candidate of candidates) {
+    const found = await probePython(candidate);
+    if (found) return found;
   }
   return null;
 }
@@ -204,10 +215,10 @@ async function downloadAndInstallPython() {
 
 
 
-  const actual = crypto.createHash('md5').update(fs.readFileSync(installerPath)).digest('hex');
-  if (actual !== PYTHON_MD5) {
+  const actual = crypto.createHash('sha256').update(fs.readFileSync(installerPath)).digest('hex');
+  if (actual.toLowerCase() !== PYTHON_SHA256.toLowerCase()) {
     try { fs.unlinkSync(installerPath); } catch {}
-    throw new Error(`Python installer checksum mismatch (expected ${PYTHON_MD5}, got ${actual})`);
+    throw new Error(`Python installer checksum mismatch (expected ${PYTHON_SHA256}, got ${actual})`);
   }
 
   updateSetup('Installing Python...', 'This may take a minute', null);
@@ -321,17 +332,19 @@ async function ensureSetup() {
 }
 
 function ensureScriptFile() {
-  if (scriptPath) return scriptPath;
-  scriptPath = path.join(os.tmpdir(), 'hiraganized-ocr-server.py');
-  fs.writeFileSync(scriptPath, PYTHON_SCRIPT, 'utf-8');
-  return scriptPath;
+  const sp = path.join(os.tmpdir(), `hiraganized-ocr-server-${crypto.randomUUID()}.py`);
+  // `wx` fails loudly (EEXIST) if a previous file somehow occupies this path
+  // instead of silently reusing it.
+  fs.writeFileSync(sp, PYTHON_SCRIPT, { encoding: 'utf-8', flag: 'wx' });
+  scriptPaths.push(sp);
+  return sp;
 }
 
 function tryCleanup() {
-  if (scriptPath) {
-    try { fs.unlinkSync(scriptPath); } catch {}
-    scriptPath = null;
+  for (const sp of scriptPaths) {
+    try { fs.unlinkSync(sp); } catch {}
   }
+  scriptPaths.length = 0;
 }
 
 async function startOcr() {

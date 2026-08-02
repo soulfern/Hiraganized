@@ -145,7 +145,11 @@ async function executeUninstall(options) {
 }
 
 function setupUninstallIpc() {
-  ipcMain.handle('uninstall:get-paths', () => {
+  const isTrustedSender = (event) =>
+    !!uninstallWindow && !uninstallWindow.isDestroyed() && event.sender === uninstallWindow.webContents;
+
+  ipcMain.handle('uninstall:get-paths', (event) => {
+    if (!isTrustedSender(event)) return { paths: null, sizes: null };
     const p = getPaths();
     const sizes = {};
     try {
@@ -173,7 +177,8 @@ function setupUninstallIpc() {
     return { paths: p, sizes };
   });
 
-  ipcMain.handle('uninstall:execute', async (_event, options) => {
+  ipcMain.handle('uninstall:execute', async (event, options) => {
+    if (!isTrustedSender(event)) return { success: false, error: 'Unauthorized' };
     return executeUninstall(options);
   });
 }
