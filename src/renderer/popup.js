@@ -9,6 +9,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 function applyAppearance(state) {
   const theme = state.settings?.appearance?.theme || 'midnight';
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.font = state.settings?.appearance?.fontFamily || 'lexend';
   fontScale = Number(state.settings?.appearance?.fontScale) || 1;
 
 

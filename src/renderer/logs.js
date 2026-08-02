@@ -6,6 +6,7 @@ let flushTimer = null;
 function applyAppearance(state) {
   const theme = state.settings?.appearance?.theme || 'midnight';
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.font = state.settings?.appearance?.fontFamily || 'lexend';
 }
 appApi.onState(applyAppearance);
 
@@ -52,3 +53,14 @@ appApi.onLogLine((line) => {
 });
 
 document.getElementById('logs-close').addEventListener('click', () => appApi.closeWindow());
+
+document.getElementById('logs-minimize').addEventListener('click', () => appApi.minimizeLogs());
+
+const logsMaximizer = document.getElementById('logs-maximize');
+const refreshMaximize = (maximized) => {
+  logsMaximizer.textContent = maximized ? '\u2750' : '\u25A2';
+  logsMaximizer.title = maximized ? 'Restore' : 'Maximize';
+  logsMaximizer.setAttribute('aria-label', logsMaximizer.title);
+};
+logsMaximizer.addEventListener('click', () => appApi.maximizeLogs());
+appApi.onLogsMaximized(refreshMaximize);

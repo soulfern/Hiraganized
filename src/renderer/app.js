@@ -12,16 +12,16 @@ const THEME_LABELS = {
 };
 
 const THEME_SWATCH = {
-  midnight: ['#1e1e1e', '#4a7bd6'],
-  ocean: ['#14212e', '#3aa0ff'],
-  forest: ['#15221b', '#4ade80'],
-  violet: ['#211c30', '#a78bfa'],
-  crimson: ['#2b1a1f', '#f87171'],
-  amber: ['#241e15', '#fbbf24'],
-  graphite: ['#202020', '#9ca3af'],
-  slate: ['#1b2129', '#94a3b8'],
-  snow: ['#f2f4f8', '#4a7bd6'],
-  cream: ['#f6f1e6', '#b07d3b']
+  midnight: ['#13191a', '#262626', '#d4d4d4', '#4a7bd6'],
+  ocean: ['#0f1c25', '#203040', '#c7d6e4', '#3aa0ff'],
+  forest: ['#111d16', '#1f372b', '#cddcc5', '#4ade80'],
+  violet: ['#191731', '#2a2b4b', '#d8d2e8', '#a78bfa'],
+  crimson: ['#241317', '#3c1f24', '#e3c9ce', '#f87171'],
+  amber: ['#221a10', '#3d341f', '#e8d9bd', '#fbbf24'],
+  graphite: ['#191919', '#2b2b2b', '#d4d4d4', '#a8b9c6'],
+  slate: ['#151c24', '#263141', '#cbd5e1', '#8fb4d8'],
+  snow: ['#e9edf4', '#f9fbfd', '#3d4859', '#4a7bd6'],
+  cream: ['#efe8d6', '#fbf6ee', '#4b3c27', '#c0883f']
 };
 
 function nestedValue(object, path) {
@@ -31,6 +31,7 @@ function nestedValue(object, path) {
 const SLIDER_FORMATS = {
   'notifications.opacity': (v) => `${v}%`,
   'appearance.fontScale': (v) => `${Number(v).toFixed(2)}x`,
+  'appearance.uiFontScale': (v) => `${Number(v).toFixed(2)}x`,
   'general.autoDismissSeconds': (v) => (v > 0 ? `${v}s` : 'Off'),
   'general.maxKanjiLimit': (v) => String(v),
   'general.captureDelayMs': (v) => (v > 0 ? `${v} ms` : 'Instant')
@@ -50,9 +51,10 @@ function renderThemeSwatches(theme) {
     btn.className = 'theme-swatch' + (name === theme ? ' active' : '');
     btn.dataset.theme = name;
     btn.title = THEME_LABELS[name];
-    const [swBg, swAccent] = THEME_SWATCH[name] || ['#444', '#888'];
+    const [swBg, swSurface, swText, swAccent] = THEME_SWATCH[name] || ['#333', '#444', '#ddd', '#888'];
     btn.innerHTML =
-      `<span class="swatch-circle" style="background:${swBg};border-color:${swAccent}"></span>` +
+      `<span class="swatch-preview" style="--sw-bg:${swBg};--sw-surface:${swSurface};--sw-text:${swText};--sw-accent:${swAccent}">` +
+      `<span class="sw-titlebar"></span><span class="sw-line line-1"></span><span class="sw-line line-2"></span><span class="sw-btn"></span></span>` +
       `<span class="swatch-name">${THEME_LABELS[name]}</span>`;
     btn.addEventListener('click', () => {
       updateSetting('appearance.theme', name);
@@ -77,23 +79,27 @@ function renderState(next) {
   const hotkey = nestedValue(settings, 'shortcuts.triggerCapture');
   if (hotkey && !recording) $('#hotkey-recorder').textContent = formatAccelerator(hotkey);
 
-  const launch = nestedValue(settings, 'general.launchOnStartup') === true;
+const launch = nestedValue(settings, 'general.launchOnStartup') === true;
   const minimized = nestedValue(settings, 'general.startMinimized') === true;
   const showCompound = nestedValue(settings, 'general.showCompoundCharacters') !== false;
   const magnifier = nestedValue(settings, 'general.magnifier') !== false;
-  const showLogs = nestedValue(settings, 'debug.showLogs') === true;
+  const showCrosshair = nestedValue(settings, 'general.showCrosshair') === true;
 
   $('#set-launchOnStartup').checked = launch;
   $('#set-startMinimized').checked = minimized;
   $('#set-showCompoundCharacters').checked = showCompound;
   $('#set-magnifier').checked = magnifier;
-  $('#set-showLogs').checked = showLogs;
+  $('#set-showCrosshair').checked = showCrosshair;
   setStartMinimizedDisabled(!launch);
+  setShowCrosshairDisabled(!magnifier);
 
   for (const path of Object.keys(SLIDER_FORMATS)) renderSlider(path);
   renderThemeSwatches(nestedValue(settings, 'appearance.theme'));
-
-
+  const fontFamily = nestedValue(settings, 'appearance.fontFamily') || 'lexend';
+  setDropdownValue(fontFamily);
+  document.documentElement.dataset.font = fontFamily;
+  const uiScale = Number(nestedValue(settings, 'appearance.uiFontScale')) || 1;
+  document.documentElement.style.setProperty('--ui-scale', String(uiScale));
 
   const theme = nestedValue(settings, 'appearance.theme') || 'midnight';
   if (theme !== lastTheme) {
@@ -138,9 +144,66 @@ function comboOf(mods, key) {
   return [...mods, key].join('+');
 }
 
+function setDropdownValue(fontFamily) {
+  const dd = $('#font-family-dropdown');
+  if (!dd) return;
+  const options = [...dd.querySelectorAll('[role="option"]')];
+  const active = options.find((o) => o.dataset.value === fontFamily) || options[0];
+  const display = dd.querySelector('.dropdown-display');
+  if (display) display.textContent = active.textContent.trim();
+  options.forEach((o) => {
+    o.classList.toggle('active', o === active);
+    o.setAttribute('aria-selected', o === active ? 'true' : 'false');
+  });
+}
+
+function bindFontDropdown() {
+  const dd = $('#font-family-dropdown');
+  if (!dd) return;
+  const trigger = dd.querySelector('.dropdown-trigger');
+
+  trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    dd.classList.toggle('open');
+    trigger.setAttribute('aria-expanded', dd.classList.contains('open') ? 'true' : 'false');
+  });
+
+  dd.querySelectorAll('[role="option"]').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      const fontFamily = opt.dataset.value;
+      setDropdownValue(fontFamily);
+      document.documentElement.dataset.font = fontFamily;
+      updateSetting('appearance.fontFamily', fontFamily);
+      dd.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!dd.contains(event.target) && dd.classList.contains('open')) {
+      dd.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && dd.classList.contains('open')) {
+      dd.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
 function setStartMinimizedDisabled(disabled) {
   const input = $('#set-startMinimized');
   const row = input.closest('.setting-row');
+  input.disabled = disabled;
+  row.classList.toggle('disabled', disabled);
+  if (disabled) input.checked = false;
+}
+
+function setShowCrosshairDisabled(disabled) {
+  const input = $('#set-showCrosshair');
+  const row = $('#row-showCrosshair');
   input.disabled = disabled;
   row.classList.toggle('disabled', disabled);
   if (disabled) input.checked = false;
@@ -150,12 +213,15 @@ function bindToggle(selector, path) {
   const el = $(selector);
   el.addEventListener('change', async () => {
     if (path === 'general.launchOnStartup' && !el.checked) {
-
-
       $('#set-startMinimized').checked = false;
       setStartMinimizedDisabled(true);
     } else if (path === 'general.launchOnStartup' && el.checked) {
       setStartMinimizedDisabled(false);
+    } else if (path === 'general.magnifier' && !el.checked) {
+      $('#set-showCrosshair').checked = false;
+      setShowCrosshairDisabled(true);
+    } else if (path === 'general.magnifier' && el.checked) {
+      setShowCrosshairDisabled(false);
     }
     await updateSetting(path, el.checked);
   });
@@ -175,6 +241,16 @@ function bindSlider(path) {
 function bindEvents() {
   $('#minimize-window').addEventListener('click', () => appApi.minimizeWindow());
   $('#close-window').addEventListener('click', () => appApi.hideWindow());
+
+  const maximizer = $('#maximize-window');
+  const refreshMaximize = (maximized) => {
+    maximizer.textContent = maximized ? '\u2750' : '\u25A2';
+    maximizer.title = maximized ? 'Restore' : 'Maximize';
+    maximizer.setAttribute('aria-label', maximizer.title);
+  };
+  maximizer.addEventListener('click', () => appApi.maximizeWindow());
+  appApi.onWindowMaximized(refreshMaximize);
+
   $('#profile-link').addEventListener('click', (e) => {
     e.preventDefault();
     appApi.openExternal('https://github.com/soulfern');
@@ -184,7 +260,9 @@ function bindEvents() {
   bindToggle('#set-startMinimized', 'general.startMinimized');
   bindToggle('#set-showCompoundCharacters', 'general.showCompoundCharacters');
   bindToggle('#set-magnifier', 'general.magnifier');
-  bindToggle('#set-showLogs', 'debug.showLogs');
+  bindToggle('#set-showCrosshair', 'general.showCrosshair');
+  $('#open-logs-btn').addEventListener('click', () => appApi.openLogs());
+  bindFontDropdown();
   for (const path of Object.keys(SLIDER_FORMATS)) bindSlider(path);
 
   $('#reset-settings-btn').addEventListener('click', async () => {
@@ -206,7 +284,7 @@ function bindEvents() {
     } catch {
       btn.textContent = 'Failed — retry';
     }
-    setTimeout(() => { btn.disabled = false; btn.textContent = 'Clear dictionary cache'; }, 2000);
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Clear'; }, 2000);
   });
 
   const recorder = $('#hotkey-recorder');

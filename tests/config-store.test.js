@@ -22,6 +22,14 @@ test('config store persists partial updates without dropping other preferences',
   assert.equal(reloaded.notifications.opacity, 100);
 });
 
+test('config store persists the selected font family', () => {
+  const { store } = createTestStore();
+  store.update({ appearance: { fontFamily: 'nunito' } });
+  store.save();
+  const reloaded = new ConfigStore(store.filePath, cloneDefaults()).load();
+  assert.equal(reloaded.appearance.fontFamily, 'nunito');
+});
+
 test('config store merges saved sections with defaults', () => {
   const { store } = createTestStore();
   store.update({ notifications: { opacity: 80 }, advanced: { logging: false } });

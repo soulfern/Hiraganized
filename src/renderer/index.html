@@ -9,12 +9,30 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <defs>
+      <symbol id="icon-keyboard" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M18 10h.01M7 14h.01M10 14h7"/></symbol>
+      <symbol id="icon-rocket" viewBox="0 0 24 24"><path d="M14 5c2.5-2.5 5.5-2 5.5-2s.5 3-2 5.5l-5 5-4-4 5.5-4.5Z"/><path d="m8.5 9.5-3.5 1-2 2 5 1M12.5 13.5l-1 3.5 1 4 2-2 1-5M7 17c-1.5 0-3 1.5-3 3 1.5 0 3-1.5 3-3Z"/></symbol>
+<symbol id="icon-minimize" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 15h8"/></symbol>
+      <symbol id="icon-opacity" viewBox="0 0 24 24"><path d="M12 3s7 7.1 7 12a7 7 0 0 1-14 0c0-4.9 7-12 7-12Z"/><path d="M12 21V6c-2 2.4-4.5 6-4.5 9a4.5 4.5 0 0 0 4.5 4.5"/></symbol>
+      <symbol id="icon-font" viewBox="0 0 24 24"><path d="M4 19 9.5 5h1L16 19M6 14h8M16 8h5M18.5 5.5v5"/></symbol>
+      <symbol id="icon-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M18 5l2 2"/></symbol>
+      <symbol id="icon-delay" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4h4M9 2h6M3 6l2-2"/></symbol>
+      <symbol id="icon-magnifier" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5M8 10.5h5M10.5 8v5"/></symbol>
+      <symbol id="icon-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h1.5a1.5 1.5 0 0 0 0-3H12a2 2 0 0 1 0-4h3.5A5.5 5.5 0 0 0 21 8.5C21 5.5 17 3 12 3Z"/><path d="M7.5 9h.01M10 6.5h.01M14 6.5h.01M17 9h.01"/></symbol>
+      <symbol id="icon-camera" viewBox="0 0 24 24"><path d="M4 8h2l1.4-2h9.2L18 8h2a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+      <symbol id="icon-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.4"/></symbol>
+      <symbol id="icon-dictionary" viewBox="0 0 24 24"><path d="M4 5h11a2 2 0 0 1 2 2v12H6a2 2 0 0 1-2-2Z"/><path d="M17 19a2 2 0 0 1-2-2V7"/><path d="M8 9h6M8 12h6M8 15h4"/></symbol>
+      <symbol id="icon-logs" viewBox="0 0 24 24"><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="m8 8 2 2-2 2M12 12h4M8 16h8"/></symbol>
+    </defs>
+  </svg>
   <div class="window-shell">
     <header class="titlebar">
       <span class="brand-name">Hiraganized</span>
       <span class="version-tag" id="version-tag"></span>
       <div class="window-actions">
         <button class="icon-button" id="minimize-window" aria-label="Minimize" title="Minimize">&mdash;</button>
+        <button class="icon-button" id="maximize-window" aria-label="Maximize" title="Maximize">&#9634;</button>
         <button class="icon-button close-button" id="close-window" aria-label="Close to tray" title="Close">&times;</button>
       </div>
     </header>
@@ -24,19 +42,31 @@
         <div class="setting-section-title">General</div>
         <div class="settings-card">
           <div class="setting-row">
-            <span class="setting-label">Capture hotkey</span>
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-keyboard" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Capture hotkey</span>
+              <span class="setting-description">Keyboard shortcut used to start a screen capture</span>
+            </div>
             <button class="hotkey-recorder" id="hotkey-recorder" data-setting="shortcuts.triggerCapture">Ctrl+Shift+K</button>
           </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Launch on startup</span>
-            <label class="toggle">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-rocket" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Launch on startup</span>
+              <span class="setting-description">Open Hiraganized automatically when you sign in</span>
+            </div>
+<label class="toggle">
               <input type="checkbox" id="set-launchOnStartup" data-setting="general.launchOnStartup" />
               <span class="slider"></span>
             </label>
           </div>
           <div class="setting-row">
-            <span class="setting-label">Start minimized</span>
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-minimize" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Start minimized</span>
+              <span class="setting-description">Launch quietly in the system tray</span>
+            </div>
             <label class="toggle">
               <input type="checkbox" id="set-startMinimized" data-setting="general.startMinimized" />
               <span class="slider"></span>
@@ -47,67 +77,143 @@
         <div class="setting-section-title">Popup</div>
         <div class="settings-card">
           <div class="setting-row">
-            <span class="setting-label">Show compound characters</span>
+<span class="setting-glyph" aria-hidden="true">本</span>
+            <div class="setting-copy">
+              <span class="setting-label">Show compound characters</span>
+              <span class="setting-description">Show each individual kanji when compounds are detected</span>
+            </div>
             <label class="toggle">
               <input type="checkbox" id="set-showCompoundCharacters" data-setting="general.showCompoundCharacters" />
               <span class="slider"></span>
             </label>
           </div>
           <div class="setting-divider"></div>
-          <div class="slider-row">
-            <div class="slider-label-row">
+          <div class="setting-row">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-opacity" /></svg>
+            <div class="setting-copy">
               <span class="setting-label">Popup opacity</span>
+              <span class="setting-description">Adjust the transparency of the results popup</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-opacity" min="30" max="100" step="1" data-setting="notifications.opacity" />
               <span class="slider-value" id="value-opacity">100%</span>
             </div>
-            <input type="range" id="slider-opacity" min="30" max="100" step="1" data-setting="notifications.opacity" />
-          </div>
-          <div class="slider-row">
-            <div class="slider-label-row">
-              <span class="setting-label">Font scale</span>
-              <span class="slider-value" id="value-fontScale">1.0&times;</span>
-            </div>
-            <input type="range" id="slider-fontScale" min="0.7" max="1.5" step="0.05" data-setting="appearance.fontScale" />
           </div>
           <div class="setting-divider"></div>
-          <div class="slider-row">
-            <div class="slider-label-row">
-              <span class="setting-label">Auto-dismiss after</span>
+          <div class="setting-row">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-font" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Font scale</span>
+              <span class="setting-description">Resize text in the results popup</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-fontScale" min="0.7" max="1.5" step="0.05" data-setting="appearance.fontScale" />
+              <span class="slider-value" id="value-fontScale">1.0&times;</span>
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-timer" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Auto-dismiss</span>
+              <span class="setting-description">Automatically close the popup after a set time</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-autoDismissSeconds" min="0" max="60" step="1" data-setting="general.autoDismissSeconds" />
               <span class="slider-value" id="value-autoDismissSeconds">Off</span>
             </div>
-            <input type="range" id="slider-autoDismissSeconds" min="0" max="60" step="1" data-setting="general.autoDismissSeconds" />
           </div>
         </div>
 
         <div class="setting-section-title">Appearance</div>
         <div class="settings-card">
           <div class="setting-row">
-            <span class="setting-label">Color theme</span>
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-palette" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Color theme</span>
+              <span class="setting-description">Choose the color palette used throughout the app</span>
+            </div>
           </div>
           <div class="theme-grid" id="theme-grid"></div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+<span class="setting-glyph" aria-hidden="true">Aa</span>
+            <div class="setting-copy">
+              <span class="setting-label">Fonts</span>
+              <span class="setting-description">Choose the typeface used in the app and popups</span>
+            </div>
+            <div class="dropdown" id="font-family-dropdown">
+              <button type="button" class="dropdown-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Font family">
+                <span class="dropdown-display">Lexend</span>
+                <span class="dropdown-caret" aria-hidden="true"></span>
+              </button>
+              <ul class="dropdown-menu" role="listbox" aria-label="Font family">
+                <li role="option" data-value="lexend" aria-selected="false" style="font-family: 'Lexend', sans-serif">Lexend</li>
+                <li role="option" data-value="nunito" aria-selected="false" style="font-family: 'Nunito', sans-serif">Nunito</li>
+                <li role="option" data-value="segoe-ui" aria-selected="false" style="font-family: 'Segoe UI', sans-serif">Segoe UI</li>
+                <li role="option" data-value="inter" aria-selected="false" style="font-family: 'Inter', sans-serif">Inter</li>
+              </ul>
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-font" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Font scale</span>
+              <span class="setting-description">Resize the text in the main interface</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-uiFontScale" min="0.8" max="1.2" step="0.05" data-setting="appearance.uiFontScale" />
+              <span class="slider-value" id="value-uiFontScale">1.00&times;</span>
+            </div>
+          </div>
         </div>
 
         <div class="setting-section-title">Capture</div>
         <div class="settings-card">
-          <div class="slider-row">
-            <div class="slider-label-row">
+          <div class="setting-row">
+<svg class="setting-icon" aria-hidden="true"><use href="#icon-camera" /></svg>
+            <div class="setting-copy">
               <span class="setting-label">Max kanji per capture</span>
+              <span class="setting-description">Limit the number of kanji processed from each capture</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-maxKanjiLimit" min="1" max="30" step="1" data-setting="general.maxKanjiLimit" />
               <span class="slider-value" id="value-maxKanjiLimit">20</span>
             </div>
-            <input type="range" id="slider-maxKanjiLimit" min="1" max="30" step="1" data-setting="general.maxKanjiLimit" />
-          </div>
-          <div class="setting-divider"></div>
-          <div class="slider-row">
-            <div class="slider-label-row">
-              <span class="setting-label">Capture delay</span>
-              <span class="slider-value" id="value-captureDelayMs">100 ms</span>
-            </div>
-            <input type="range" id="slider-captureDelayMs" min="0" max="1000" step="25" data-setting="general.captureDelayMs" />
           </div>
           <div class="setting-divider"></div>
           <div class="setting-row">
-            <span class="setting-label">Show magnifier</span>
-            <label class="toggle">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-delay" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Capture delay</span>
+              <span class="setting-description">Wait briefly before capturing the selected area</span>
+            </div>
+            <div class="range-control">
+              <input type="range" id="slider-captureDelayMs" min="0" max="1000" step="25" data-setting="general.captureDelayMs" />
+              <span class="slider-value" id="value-captureDelayMs">100 ms</span>
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-magnifier" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Show magnifier</span>
+              <span class="setting-description">Display a zoomed preview while selecting an area</span>
+            </div>
+<label class="toggle">
               <input type="checkbox" id="set-magnifier" data-setting="general.magnifier" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row" id="row-showCrosshair">
+            <svg class="setting-icon" aria-hidden="true"><use href="#icon-crosshair" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Show crosshair</span>
+              <span class="setting-description">Display a target crosshair in the magnifier</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="set-showCrosshair" data-setting="general.showCrosshair" />
               <span class="slider"></span>
             </label>
           </div>
@@ -115,18 +221,25 @@
 
         <div class="setting-section-title">Dictionary</div>
         <div class="settings-card">
-          <p class="cache-clear-note">Clears the saved kanji lookup cache. Lookups will re-fetch from the network on next use.</p>
-          <button class="danger-btn" id="clear-cache-btn">Clear dictionary cache</button>
+          <div class="setting-row">
+<svg class="setting-icon" aria-hidden="true"><use href="#icon-dictionary" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Clear dictionary cache</span>
+              <span class="setting-description">Clear saved lookups to free space (not recommended)</span>
+            </div>
+            <button class="danger-btn" id="clear-cache-btn">Clear</button>
+          </div>
         </div>
 
         <div class="setting-section-title">Debug</div>
         <div class="settings-card">
           <div class="setting-row">
-            <span class="setting-label">Show logs</span>
-            <label class="toggle">
-              <input type="checkbox" id="set-showLogs" data-setting="debug.showLogs" />
-              <span class="slider"></span>
-            </label>
+<svg class="setting-icon" aria-hidden="true"><use href="#icon-logs" /></svg>
+            <div class="setting-copy">
+              <span class="setting-label">Logs</span>
+              <span class="setting-description">Opens a window of logs for troubleshooting</span>
+            </div>
+            <button class="primary-btn" id="open-logs-btn">Open logs</button>
           </div>
         </div>
 

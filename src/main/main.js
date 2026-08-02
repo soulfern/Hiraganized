@@ -20,9 +20,9 @@ if (process.argv.includes('--uninstall')) {
 
 const POPUP_WIDTH = 310;
 const POPUP_HEIGHT = 200;
-const MAIN_WINDOW_WIDTH = 520;
-const MAIN_WINDOW_HEIGHT = 460;
-const MAIN_WINDOW_MIN_WIDTH = 520;
+const MAIN_WINDOW_WIDTH = 700;
+const MAIN_WINDOW_HEIGHT = 560;
+const MAIN_WINDOW_MIN_WIDTH = 620;
 const MAIN_WINDOW_MIN_HEIGHT = 460;
 
 let tray = null;
@@ -105,6 +105,7 @@ async function triggerCapture() {
   try {
 
     const magnifierEnabled = settings.general?.magnifier !== false;
+    const showCrosshair = settings.general?.showCrosshair === true;
     const framesPromise = magnifierEnabled
       ? getScreenFrames().then((frames) => frames.map((f) => ({
           dataUrl: f.dataUrl,
@@ -119,7 +120,7 @@ async function triggerCapture() {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       const send = () => {
         if (overlayWindow && !overlayWindow.isDestroyed()) {
-          overlayWindow.webContents.send('overlay:image', { frames, magnifier: magnifierEnabled });
+          overlayWindow.webContents.send('overlay:image', { frames, magnifier: magnifierEnabled, showCrosshair });
         }
       };
       if (overlayWindow.webContents.isLoading()) {
@@ -639,8 +640,16 @@ function createMainWindow() {
 
   mainWindow.on('move', scheduleWindowStateSave);
   mainWindow.on('resize', scheduleWindowStateSave);
-  mainWindow.on('maximize', () => { scheduleWindowStateSave(); publishState(); });
-  mainWindow.on('unmaximize', () => { scheduleWindowStateSave(); publishState(); });
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized', true);
+    scheduleWindowStateSave();
+    publishState();
+  });
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximized', false);
+    scheduleWindowStateSave();
+    publishState();
+  });
   mainWindow.on('closed', () => { saveWindowState(); mainWindow = null; });
   mainWindow.on('show', refreshTrayMenu);
   mainWindow.on('hide', refreshTrayMenu);
@@ -677,6 +686,8 @@ function createLogsWindow() {
   logsWindow.webContents.once('did-finish-load', () => publishState());
 
   const win = logsWindow;
+  win.on('maximize', () => win.webContents.send('logs:maximized', true));
+  win.on('unmaximize', () => win.webContents.send('logs:maximized', false));
   win.on('closed', () => {
 
     if (logsWindow === win) logsWindow = null;
@@ -787,6 +798,12 @@ function startedFromStartup() {
   return process.argv.includes('--hidden');
 }
 
+function toggleMaximized(win) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+}
+
 function setupIpc() {
   ipcMain.handle('app:update-settings', (event, patch) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
@@ -833,6 +850,10 @@ function setupIpc() {
   });
   ipcMain.handle('app:hide-window', () => { mainWindow?.hide(); showTrayBackgroundNotification(); refreshTrayMenu(); });
   ipcMain.handle('app:minimize-window', () => mainWindow?.minimize());
+  ipcMain.handle('app:maximize-window', () => toggleMaximized(mainWindow));
+  ipcMain.handle('app:open-logs', () => { createLogsWindow(); });
+  ipcMain.handle('app:minimize-logs', () => logsWindow?.minimize());
+  ipcMain.handle('app:maximize-logs', () => toggleMaximized(logsWindow));
   ipcMain.handle('ocr:cancel', () => {
     cancelSetup();
     state.ocrStatus = { available: false, message: 'OCR setup cancelled' };

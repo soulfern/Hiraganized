@@ -1,6 +1,7 @@
 const THEME_KEYS = Object.freeze([
   'midnight', 'ocean', 'forest', 'violet', 'crimson', 'amber', 'graphite', 'slate', 'snow', 'cream'
 ]);
+const FONT_FAMILY_KEYS = Object.freeze(['lexend', 'nunito', 'segoe-ui', 'inter']);
 
 const DEFAULT_SETTINGS = Object.freeze({
   general: {
@@ -10,13 +11,16 @@ const DEFAULT_SETTINGS = Object.freeze({
     startMinimized: false,
     showCompoundCharacters: false,
     maxKanjiLimit: 20,
-    captureDelayMs: 100,
+captureDelayMs: 100,
     magnifier: false,
+    showCrosshair: false,
     autoDismissSeconds: 0
   },
   appearance: {
     theme: 'midnight',
-    fontScale: 1
+    fontScale: 1,
+    uiFontScale: 1,
+    fontFamily: 'lexend'
   },
   shortcuts: {
     triggerCapture: 'CommandOrControl+Shift+K'
@@ -73,11 +77,14 @@ function normalizeSettings(settings) {
   general.maxKanjiLimit = Math.round(clampNumber(general.maxKanjiLimit, 1, 30, DEFAULT_SETTINGS.general.maxKanjiLimit));
   general.captureDelayMs = Math.round(clampNumber(general.captureDelayMs, 0, 1000, DEFAULT_SETTINGS.general.captureDelayMs));
   general.autoDismissSeconds = Math.round(clampNumber(general.autoDismissSeconds, 0, 60, DEFAULT_SETTINGS.general.autoDismissSeconds));
-  appearance.fontScale = clampNumber(appearance.fontScale, 0.7, 1.5, DEFAULT_SETTINGS.appearance.fontScale);
+appearance.fontScale = clampNumber(appearance.fontScale, 0.7, 1.5, DEFAULT_SETTINGS.appearance.fontScale);
+  appearance.uiFontScale = clampNumber(appearance.uiFontScale, 0.8, 1.2, DEFAULT_SETTINGS.appearance.uiFontScale);
   appearance.theme = THEME_KEYS.includes(appearance.theme) ? appearance.theme : DEFAULT_SETTINGS.appearance.theme;
+  appearance.fontFamily = FONT_FAMILY_KEYS.includes(appearance.fontFamily) ? appearance.fontFamily : DEFAULT_SETTINGS.appearance.fontFamily;
   result.notifications.opacity = Math.round(clampNumber(result.notifications.opacity, 30, 100, DEFAULT_SETTINGS.notifications.opacity));
   if (!general.launchOnStartup) general.startMinimized = false;
+  if (!general.magnifier) general.showCrosshair = false;
   return result;
 }
 
-module.exports = { DEFAULT_SETTINGS, THEME_KEYS, cloneDefaults, mergeSettings };
+module.exports = { DEFAULT_SETTINGS, THEME_KEYS, FONT_FAMILY_KEYS, cloneDefaults, mergeSettings };

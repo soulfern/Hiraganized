@@ -16,6 +16,7 @@ let isDragging = false;
 
 let frames = [];
 let magnifierEnabled = true;
+let showCrosshair = false;
 
 function updateSelection(x1, y1, x2, y2) {
   const l = Math.min(x1, x2);
@@ -77,6 +78,24 @@ function drawLens(cx, cy) {
   lensCtx.beginPath();
   lensCtx.arc(lens.width / 2, lens.height / 2, LENS_RADIUS - 1, 0, Math.PI * 2);
   lensCtx.stroke();
+
+  if (showCrosshair) {
+    const cx = lens.width / 2;
+    const cy = lens.height / 2;
+    const arm = 8;
+    lensCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+    lensCtx.lineWidth = 1.2;
+    lensCtx.beginPath();
+    lensCtx.moveTo(cx - arm, cy);
+    lensCtx.lineTo(cx + arm, cy);
+    lensCtx.moveTo(cx, cy - arm);
+    lensCtx.lineTo(cx, cy + arm);
+    lensCtx.stroke();
+    lensCtx.fillStyle = 'rgba(255,255,255,0.85)';
+    lensCtx.beginPath();
+    lensCtx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+    lensCtx.fill();
+  }
 }
 
 function moveLens(cx, cy) {
@@ -138,6 +157,7 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 appApi.onOverlayImage((payload) => {
   const data = payload || {};
   magnifierEnabled = data.magnifier !== false;
+  showCrosshair = data.showCrosshair === true;
   frames = (data.frames || []).map((f) => ({
     img: (() => { const i = new Image(); i.src = f.dataUrl; return i; })(),
     displayBounds: f.displayBounds,
