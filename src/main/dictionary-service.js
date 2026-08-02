@@ -80,8 +80,9 @@ class DictionaryService {
 
       const obj = {};
       for (const [key, value] of this._cache) {
-        if (value && value.__notWord) continue;
-        obj[key] = value;
+        if (!value || value.__notWord) continue;
+        const { _children, ...entry } = value;
+        obj[key] = entry;
       }
       const tmp = `${this._cachePath}.${process.pid}.${Date.now()}.tmp`;
       fs.mkdirSync(path.dirname(this._cachePath), { recursive: true });
@@ -126,7 +127,7 @@ class DictionaryService {
 
 
     const cached = this._cache.get(value);
-    if (cached) return cached;
+    if (cached) return { ...cached, character: value };
 
 
 
@@ -144,7 +145,7 @@ class DictionaryService {
         if (response.ok) {
           const data = await response.json();
           const result = {
-            character: data.kanji || value,
+            character: value,
             unicode: unicodeOf(value),
             found: true,
             meanings: Array.isArray(data.meanings) ? data.meanings : [],
@@ -157,7 +158,7 @@ class DictionaryService {
             frequency: null
           };
           if (!this._staleEpoch(epoch)) this._cacheResult(value, result);
-          return result;
+          return { ...result };
         }
       } catch {} finally {
         clearTimeout(timeout);
@@ -180,7 +181,8 @@ class DictionaryService {
     const cacheKey = `#${word}`;
     if (this._cache.has(cacheKey)) {
       const hit = this._cache.get(cacheKey);
-      return hit && hit.__notWord ? null : hit;
+      if (hit && hit.__notWord) return null;
+      return hit ? { ...hit, character: word } : null;
     }
 
     const inflight = this._pending.get(cacheKey);
@@ -197,9 +199,11 @@ class DictionaryService {
         });
         if (response.ok) {
           const data = await response.json();
-          const match = (data.data || []).find((w) => w.japanese?.[0]?.word === word);
+          const match = (data.data || []).find((w) =>
+            (w.japanese || []).some((jp) => jp && jp.word === word)
+          );
           if (match) {
-            const jp = match.japanese[0];
+            const jp = (match.japanese || []).find((j) => j && j.word === word) || (match.japanese || [])[0];
             const senses = match.senses || [];
             const meanings = senses
               .flatMap((s) => s.english_definitions || [])
@@ -208,12 +212,12 @@ class DictionaryService {
               character: word,
               isCompound: true,
               found: true,
-              readings: jp.reading ? [jp.reading] : [],
+              readings: jp && jp.reading ? [jp.reading] : [],
               meanings: meanings.slice(0, 5),
               onyomi: [], kunyomi: []
             };
             if (!this._staleEpoch(epoch)) this._cacheResult(cacheKey, result);
-            return result;
+            return { ...result };
           }
 
 

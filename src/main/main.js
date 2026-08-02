@@ -277,7 +277,7 @@ async function handleSelection(bounds) {
 }
 
 async function getScreenFrames(options = {}) {
-  const maxWidth = Math.max(640, Math.min(Number(options?.maxWidth) || 1920, 1920));
+  const maxWidth = Math.max(640, Math.min(Number(options?.maxWidth) || 1920, 4096));
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
     thumbnailSize: { width: maxWidth, height: Math.round(maxWidth * 0.68) },

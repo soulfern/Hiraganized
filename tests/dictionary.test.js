@@ -204,6 +204,142 @@ test('network failure on compound lookup is cached for the session (no re-fetch)
   }
 });
 
+test('lookup reports the requested character even when the API returns a different kanji', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      kanji: '￮',
+      meanings: ['day', 'sun'],
+      on_readings: ['ニチ', 'ジツ'],
+      kun_readings: ['ひ', 'か']
+    })
+  });
+  try {
+    const service = new DictionaryService();
+    const result = await service.lookup('日');
+    assert.equal(result.character, '日');
+    assert.ok(result.meanings.includes('day'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('lookupCompound matches any Japanese form of the requested word', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{
+        japanese: [
+          { word: '毎日毎日', reading: 'まいにちまいにち' },
+          { word: '毎日', reading: 'まいにち' }
+        ],
+        senses: [{ english_definitions: ['every day'] }]
+      }]
+    })
+  });
+  try {
+    const service = new DictionaryService();
+    const result = await service.lookupCompound('毎日');
+    assert.equal(result.found, true);
+    assert.equal(result.character, '毎日');
+    assert.ok(result.readings.includes('まいにち'));
+    assert.ok(result.readings.length <= 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('lookupCompound never returns a compound whose character differs from the request', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{
+        japanese: [{ word: '明後日', reading: 'あさって' }],
+        senses: [{ english_definitions: ['day after tomorrow'] }]
+      }]
+    })
+  });
+  try {
+    const service = new DictionaryService();
+    assert.equal(await service.lookupCompound('毎日'), null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('mutating a compound cache hit does not corrupt the cached entry', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{
+        japanese: [{ word: '昨日', reading: 'きのう' }],
+        senses: [{ english_definitions: ['yesterday'] }]
+      }]
+    })
+  });
+  try {
+    const service = new DictionaryService();
+    const first = await service.lookupCompound('昨日');
+    first._children = [{ character: '昨' }, { character: '日' }];
+    const second = await service.lookupCompound('昨日');
+    assert.equal(second._children, undefined);
+    assert.equal(second.character, '昨日');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('_flush never persists compound _children into the cache file', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const originalFetch = global.fetch;
+  const cachePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hira-dict-')), 'cache.json');
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      data: [{
+        japanese: [{ word: '昨日', reading: 'きのう' }],
+        senses: [{ english_definitions: ['yesterday'] }]
+      }]
+    })
+  });
+  try {
+    const service = new DictionaryService(cachePath).load();
+    const result = await service.lookupCompound('昨日');
+    result._children = [{ name: 'x' }];
+    service.flush();
+    const raw = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+    assert.equal(raw['#昨日']._children, undefined);
+    assert.equal(raw['#昨日'].character, '昨日');
+  } finally {
+    global.fetch = originalFetch;
+    try { fs.rmSync(path.dirname(cachePath), { recursive: true, force: true }); } catch {}
+  }
+});
+
+test('lookup returns a copy so mutating a cached result cannot anchor wrong characters later', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ kanji: '水', meanings: ['water'], on_readings: ['スイ'], kun_readings: ['みず'] })
+  });
+  try {
+    const service = new DictionaryService();
+    const first = await service.lookup('水');
+    first.character = '号';
+    const second = await service.lookup('水');
+    assert.equal(second.character, '水');
+    assert.equal(service._cache.get('水').character, '水');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('segmentSequence stops probing Jisho once the budget is exhausted', async () => {
   const originalFetch = global.fetch;
   let calls = 0;
